@@ -1,0 +1,161 @@
+{
+  "logAnalytics": {
+    "workspaceId": "${AZURE_LOG_ANALYTICS_WORKSPACE_ID}"
+  },
+  "resources": [
+    {
+      "name": "app-service",
+      "id": "${AZURE_APP_SERVICE_RESOURCE_ID}",
+      "type": "Microsoft.Web/sites",
+      "metrics": [
+        {
+          "name": "Http5xx",
+          "aggregation": "Count",
+          "interval": "PT5M"
+        },
+        {
+          "name": "Http4xx",
+          "aggregation": "Count",
+          "interval": "PT5M"
+        },
+        {
+          "name": "ResponseTime",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "CPUTime",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "MemoryWorkingSet",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        }
+      ],
+      "logs": [
+        {
+          "name": "AppServiceHTTPLogs",
+          "query": "AppServiceHTTPLogs | where TimeGenerated > ago(1h) | project TimeGenerated, CsUriStem, CsMethod, ScStatus, TimeTaken",
+          "interval": "PT1H"
+        }
+      ]
+    },
+    {
+      "name": "virtual-machine",
+      "id": "${AZURE_VM_RESOURCE_ID}",
+      "type": "Microsoft.Compute/virtualMachines",
+      "metrics": [
+        {
+          "name": "Percentage CPU",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "Available Memory Bytes",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "Disk Read Bytes",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "Disk Write Bytes",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "Network In Total",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "Network Out Total",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        }
+      ],
+      "logs": [
+        {
+          "name": "SecurityEvent",
+          "query": "SecurityEvent | where TimeGenerated > ago(1h) | project TimeGenerated, Activity, Computer, Account",
+          "interval": "PT1H"
+        }
+      ]
+    },
+    {
+      "name": "sql-database",
+      "id": "${AZURE_SQL_DB_RESOURCE_ID}",
+      "type": "Microsoft.Sql/servers/databases",
+      "metrics": [
+        {
+          "name": "cpu_percent",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "dtu_consumption_percent",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "storage_percent",
+          "aggregation": "Average",
+          "interval": "PT5M"
+        },
+        {
+          "name": "connection_successful",
+          "aggregation": "Count",
+          "interval": "PT5M"
+        },
+        {
+          "name": "connection_failed",
+          "aggregation": "Count",
+          "interval": "PT5M"
+        }
+      ],
+      "logs": [
+        {
+          "name": "SQLInsights",
+          "query": "AzureDiagnostics | where Category contains 'SQLInsights' | where TimeGenerated > ago(1h)",
+          "interval": "PT1H"
+        }
+      ]
+    }
+  ],
+  "scheduledQueries": [
+    {
+      "name": "VM CPU Usage",
+      "schedule": "0/15 * * * *", // Every 15 minutes
+      "type": "metrics",
+      "resourceId": "${AZURE_VM_RESOURCE_ID}",
+      "metrics": ["Percentage CPU"],
+      "options": {
+        "aggregation": "Average",
+        "interval": { "duration": "PT5M" }
+      }
+    },
+    {
+      "name": "App Service HTTP 5xx",
+      "schedule": "0/10 * * * *", // Every 10 minutes
+      "type": "metrics",
+      "resourceId": "${AZURE_APP_SERVICE_RESOURCE_ID}",
+      "metrics": ["Http5xx"],
+      "options": {
+        "aggregation": "Count",
+        "interval": { "duration": "PT5M" }
+      }
+    },
+    {
+      "name": "Security Events",
+      "schedule": "0 * * * *", // Every hour
+      "type": "logs",
+      "workspaceId": "${AZURE_LOG_ANALYTICS_WORKSPACE_ID}",
+      "query": "SecurityEvent | where TimeGenerated > ago(1h) | summarize count() by Activity",
+      "timespan": { "duration": "PT1H" }
+    }
+  ]
+} 

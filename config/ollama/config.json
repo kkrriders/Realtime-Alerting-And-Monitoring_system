@@ -1,0 +1,15 @@
+{
+  "baseUrl": "http://ollama:11434",
+  "models": {
+    "anomalyDetection": "llama2",
+    "trendAnalysis": "llama2",
+    "recommendationEngine": "llama2"
+  },
+  "promptTemplates": {
+    "anomalyDetection": "As a monitoring system, analyze the following metrics for anomalies:\n{{context}}\n\nIdentify any patterns that indicate potential issues or anomalies. For each anomaly, specify its severity (info, warning, error, critical) and explain why it's concerning.",
+    
+    "trendAnalysis": "As a monitoring system, analyze the following historical data:\n{{context}}\n\nIdentify trends, patterns, and forecasted behavior for the next 24 hours. Include specific metrics that show notable trends and provide quantifiable predictions where possible.",
+    
+    "recommendationEngine": "Based on the following system performance data:\n{{context}}\n\nProvide specific recommendations for optimizing resource utilization and preventing potential issues. Number each recommendation and include its priority (low, medium, high) and the specific resource it targets (CPU, memory, network, etc.)."
+  }
+} 

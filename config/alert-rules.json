@@ -1,0 +1,76 @@
+{
+  "rules": [
+    {
+      "id": "cpu-high-usage",
+      "name": "High CPU Usage",
+      "description": "Alert when CPU usage is consistently high",
+      "type": "prometheus",
+      "severity": "warning",
+      "query": "avg(system_cpu_usage) > 80",
+      "duration": "5m",
+      "labels": {
+        "resource": "cpu",
+        "team": "infrastructure"
+      },
+      "annotations": {
+        "summary": "High CPU usage detected",
+        "description": "CPU usage has been above 80% for more than 5 minutes"
+      }
+    },
+    {
+      "id": "memory-high-usage",
+      "name": "High Memory Usage",
+      "description": "Alert when memory usage is consistently high",
+      "type": "prometheus",
+      "severity": "warning",
+      "query": "(system_memory_usage_bytes{type=\"used\"} / system_memory_usage_bytes{type=\"total\"}) * 100 > 85",
+      "duration": "5m",
+      "labels": {
+        "resource": "memory",
+        "team": "infrastructure"
+      },
+      "annotations": {
+        "summary": "High memory usage detected",
+        "description": "Memory usage has been above 85% for more than 5 minutes"
+      }
+    },
+    {
+      "id": "http-error-rate",
+      "name": "High HTTP Error Rate",
+      "description": "Alert when HTTP 5xx errors are high",
+      "type": "azure",
+      "severity": "error",
+      "resourceType": "app-service",
+      "metricName": "Http5xx",
+      "threshold": 10,
+      "duration": "15m",
+      "labels": {
+        "resource": "web-app",
+        "team": "application"
+      },
+      "annotations": {
+        "summary": "High HTTP error rate detected",
+        "description": "HTTP 5xx errors have been above threshold for more than 15 minutes"
+      }
+    },
+    {
+      "id": "ai-anomaly-detection",
+      "name": "AI Anomaly Detection",
+      "description": "AI-driven anomaly detection for system metrics",
+      "type": "ai",
+      "severity": "info",
+      "resourceType": "system",
+      "metrics": ["cpu", "memory", "network"],
+      "threshold": "auto",
+      "duration": "1h",
+      "labels": {
+        "resource": "system",
+        "team": "ai-ops"
+      },
+      "annotations": {
+        "summary": "AI detected anomaly in system metrics",
+        "description": "The AI analysis has detected an unusual pattern in system behavior"
+      }
+    }
+  ]
+} 
