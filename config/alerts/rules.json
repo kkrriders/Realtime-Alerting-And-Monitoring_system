@@ -1,0 +1,129 @@
+{
+  "rules": [
+    {
+      "id": "cpu_high",
+      "name": "High CPU Usage",
+      "description": "Alert when CPU usage is above 80% for 5 minutes",
+      "type": "threshold",
+      "source": "prometheus",
+      "query": "system_cpu_usage{core=\"core-0\"} > 80",
+      "duration": "5m",
+      "severity": "warning",
+      "enabled": true,
+      "labels": { "resource": "cpu", "team": "infrastructure" },
+      "annotations": {
+        "summary": "High CPU Usage detected",
+        "description": "CPU usage on {{ $labels.instance }} has been above 80% for more than 5 minutes"
+      }
+    },
+    {
+      "id": "memory_high",
+      "name": "High Memory Usage",
+      "description": "Alert when memory usage is above 90% for 10 minutes",
+      "type": "threshold",
+      "source": "prometheus",
+      "query": "system_memory_usage_bytes{type=\"used\"} / system_memory_usage_bytes{type=\"total\"} * 100 > 90",
+      "duration": "10m",
+      "severity": "warning",
+      "enabled": true,
+      "labels": { "resource": "memory", "team": "infrastructure" },
+      "annotations": {
+        "summary": "High Memory Usage detected",
+        "description": "Memory usage on {{ $labels.instance }} has been above 90% for more than 10 minutes"
+      }
+    },
+    {
+      "id": "http_errors",
+      "name": "HTTP 5xx Errors",
+      "description": "Alert when there are too many HTTP 5xx errors",
+      "type": "threshold",
+      "source": "prometheus",
+      "query": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100 > 5",
+      "duration": "5m",
+      "severity": "error",
+      "enabled": true,
+      "labels": { "resource": "api", "team": "backend" },
+      "annotations": {
+        "summary": "High error rate detected",
+        "description": "HTTP 5xx error rate is above 5% for more than 5 minutes"
+      }
+    },
+    {
+      "id": "api_latency",
+      "name": "API High Latency",
+      "description": "Alert when API response time is too high",
+      "type": "threshold",
+      "source": "prometheus",
+      "query": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, handler)) > 2",
+      "duration": "5m",
+      "severity": "warning",
+      "enabled": true,
+      "labels": { "resource": "api", "team": "backend" },
+      "annotations": {
+        "summary": "High API latency detected",
+        "description": "95th percentile of API response time is above 2 seconds for more than 5 minutes"
+      }
+    },
+    {
+      "id": "disk_usage",
+      "name": "High Disk Usage",
+      "description": "Alert when disk usage is above 85%",
+      "type": "threshold",
+      "source": "prometheus",
+      "query": "disk_usage_percent > 85",
+      "duration": "30m",
+      "severity": "warning",
+      "enabled": true,
+      "labels": { "resource": "storage", "team": "infrastructure" },
+      "annotations": {
+        "summary": "High disk usage detected",
+        "description": "Disk usage on {{ $labels.instance }} ({{ $labels.mountpoint }}) has been above 85% for more than 30 minutes"
+      }
+    },
+    {
+      "id": "ai_cpu_anomaly",
+      "name": "AI-Detected CPU Anomaly",
+      "description": "Alert when the AI system detects an anomaly in CPU patterns",
+      "type": "ai",
+      "source": "ollama",
+      "resourceType": "cpu",
+      "minSeverity": "warning",
+      "enabled": true,
+      "labels": { "resource": "cpu", "team": "ai-ops" },
+      "annotations": {
+        "summary": "AI detected CPU anomaly",
+        "description": "The AI system has detected an unusual pattern in CPU usage"
+      }
+    },
+    {
+      "id": "ai_memory_anomaly",
+      "name": "AI-Detected Memory Anomaly",
+      "description": "Alert when the AI system detects an anomaly in memory usage",
+      "type": "ai",
+      "source": "ollama",
+      "resourceType": "memory",
+      "minSeverity": "warning",
+      "enabled": true,
+      "labels": { "resource": "memory", "team": "ai-ops" },
+      "annotations": {
+        "summary": "AI detected memory anomaly",
+        "description": "The AI system has detected an unusual pattern in memory usage"
+      }
+    },
+    {
+      "id": "ai_network_anomaly",
+      "name": "AI-Detected Network Anomaly",
+      "description": "Alert when the AI system detects an anomaly in network traffic",
+      "type": "ai",
+      "source": "ollama",
+      "resourceType": "network",
+      "minSeverity": "warning",
+      "enabled": true,
+      "labels": { "resource": "network", "team": "ai-ops" },
+      "annotations": {
+        "summary": "AI detected network anomaly",
+        "description": "The AI system has detected an unusual pattern in network traffic"
+      }
+    }
+  ]
+} 

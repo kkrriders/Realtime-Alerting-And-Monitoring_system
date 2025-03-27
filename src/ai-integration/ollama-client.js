@@ -26,9 +26,9 @@ const DEFAULT_CONFIG = {
     recommendationEngine: 'llama2'
   },
   promptTemplates: {
-    anomalyDetection: 'As a monitoring system, analyze the following metrics for anomalies:\n{{context}}\n\nIdentify any patterns that indicate potential issues or anomalies.',
-    trendAnalysis: 'As a monitoring system, analyze the following historical data:\n{{context}}\n\nIdentify trends, patterns, and forecasted behavior for the next 24 hours.',
-    recommendationEngine: 'Based on the following system performance data:\n{{context}}\n\nProvide recommendations for optimizing resource utilization and preventing potential issues.'
+    anomalyDetection: 'As a monitoring system, analyze the following metrics for anomalies:\n{{context}}\n\nIdentify any patterns that indicate potential issues or anomalies. For each anomaly, specify its severity (info, warning, error, critical) and explain why it's concerning.',
+    trendAnalysis: 'As a monitoring system, analyze the following historical data:\n{{context}}\n\nIdentify trends, patterns, and forecasted behavior for the next 24 hours. Include specific metrics that show notable trends and provide quantifiable predictions where possible.',
+    recommendationEngine: 'Based on the following system performance data:\n{{context}}\n\nProvide specific recommendations for optimizing resource utilization and preventing potential issues. Number each recommendation and include its priority (low, medium, high) and the specific resource it targets (CPU, memory, network, etc.).'
   }
 };
 
@@ -68,17 +68,27 @@ export async function initializeAI() {
       generateEmbeddings: generateEmbeddings,
       
       // Configuration access
-      getConfiguration: () => ({ ...configData })
+      getConfiguration: () => ({ ...configData }),
+      
+      // Enhanced AI functions
+      analyzeAlertPattern: analyzeAlertPattern,
+      explainAnomaly: explainAnomaly,
+      predictResourceUsage: predictResourceUsage,
+      correlateMetrics: correlateMetrics
     };
   } catch (error) {
     logger.error('Failed to initialize AI integration', { error: error.message });
     
     // Return limited functionality for graceful degradation
     return {
-      detectAnomalies: () => ({ error: 'AI integration unavailable', severity: 'unknown' }),
+      detectAnomalies: () => ({ error: 'AI integration unavailable', severity: 'unknown', anomalies: [] }),
       analyzeTrends: () => ({ error: 'AI integration unavailable', trends: [] }),
       getRecommendations: () => ({ error: 'AI integration unavailable', recommendations: [] }),
-      getConfiguration: () => ({ ...configData })
+      getConfiguration: () => ({ ...configData }),
+      analyzeAlertPattern: () => ({ error: 'AI integration unavailable', patterns: [] }),
+      explainAnomaly: () => ({ error: 'AI integration unavailable', explanation: 'AI analysis unavailable' }),
+      predictResourceUsage: () => ({ error: 'AI integration unavailable', predictions: [] }),
+      correlateMetrics: () => ({ error: 'AI integration unavailable', correlations: [] })
     };
   }
 }
@@ -125,40 +135,37 @@ async function checkOllamaAvailability() {
 }
 
 /**
- * Load specialized anomaly detection models
+ * Load specialized models for anomaly detection
  */
 async function loadAnomalyModels() {
-  // Note: In a real implementation, these would be specialized models
-  // For this example, we're using the same base model
-  const modelName = configData.models.anomalyDetection;
-  
   try {
-    // Check if the model exists
+    // Get available models
     const response = await axios.get(`${configData.baseUrl}/api/tags`);
-    const availableModels = response.data.models || [];
+    const availableModels = response.data.models?.map(model => model.name) || [];
     
-    if (availableModels.some(model => model.name === modelName)) {
-      logger.info(`Model ${modelName} is available for anomaly detection`);
-      
-      // In a real implementation, we would load different specialized models
-      // Here we're just using the same model for different resource types
-      anomalyModels.cpu = modelName;
-      anomalyModels.memory = modelName;
-      anomalyModels.network = modelName;
+    // Configure specialized models based on what's available
+    // Prefer more specialized models if available, fall back to defaults
+    
+    if (availableModels.includes('llama2-anomaly')) {
+      // Specialized models are available
+      anomalyModels.cpu = 'llama2-anomaly';
+      anomalyModels.memory = 'llama2-anomaly';
+      anomalyModels.network = 'llama2-anomaly';
+      logger.info('Using specialized anomaly detection model: llama2-anomaly');
     } else {
-      logger.warn(`Model ${modelName} is not available, attempting to pull it`);
-      
-      // Try to pull the model
-      await axios.post(`${configData.baseUrl}/api/pull`, { name: modelName });
-      logger.info(`Model ${modelName} pulled successfully`);
-      
-      anomalyModels.cpu = modelName;
-      anomalyModels.memory = modelName;
-      anomalyModels.network = modelName;
+      // Use default models
+      anomalyModels.cpu = configData.models.anomalyDetection;
+      anomalyModels.memory = configData.models.anomalyDetection;
+      anomalyModels.network = configData.models.anomalyDetection;
+      logger.info('Using default model for anomaly detection: ' + configData.models.anomalyDetection);
     }
   } catch (error) {
     logger.error('Failed to load anomaly models', { error: error.message });
-    throw error;
+    
+    // Fall back to defaults
+    anomalyModels.cpu = configData.models.anomalyDetection;
+    anomalyModels.memory = configData.models.anomalyDetection;
+    anomalyModels.network = configData.models.anomalyDetection;
   }
 }
 
@@ -282,6 +289,338 @@ async function getRecommendations(data) {
 }
 
 /**
+ * Analyze patterns in alert history
+ * @param {Array} alertHistory - Historical alert data
+ * @returns {Promise<Object>} - Alert pattern analysis
+ */
+async function analyzeAlertPattern(alertHistory) {
+  logger.debug('Analyzing alert patterns');
+  
+  try {
+    const modelName = configData.models.trendAnalysis;
+    
+    // Prepare context
+    const context = JSON.stringify(alertHistory, null, 2);
+    
+    // Prepare prompt
+    const prompt = `As a monitoring system, analyze the following alert history:\n${context}\n\n` +
+                  `Identify patterns, correlations, and recurring issues. Look for time-based patterns, ` +
+                  `resource relationships, and potential root causes. Provide insights on how to reduce alert fatigue.`;
+    
+    // Generate completion
+    const response = await generateCompletion(modelName, prompt);
+    
+    // Process and structure the response
+    const patterns = [];
+    const insights = [];
+    
+    // Extract patterns (simple implementation)
+    const patternSection = response.match(/Patterns:([\s\S]*?)(?:Correlations:|$)/i);
+    if (patternSection && patternSection[1]) {
+      const patternLines = patternSection[1].split('\n').filter(line => line.trim());
+      for (const line of patternLines) {
+        if (line.includes(':') || line.includes('-') || line.includes('•')) {
+          patterns.push({
+            description: line.replace(/^[•\-\d\.\s]+/, '').trim()
+          });
+        }
+      }
+    }
+    
+    // Extract insights
+    const insightSection = response.match(/Insights:([\s\S]*?)(?:Recommendations:|$)/i);
+    if (insightSection && insightSection[1]) {
+      const insightLines = insightSection[1].split('\n').filter(line => line.trim());
+      for (const line of insightLines) {
+        if (line.includes(':') || line.includes('-') || line.includes('•')) {
+          insights.push({
+            description: line.replace(/^[•\-\d\.\s]+/, '').trim()
+          });
+        }
+      }
+    }
+    
+    logger.info('Alert pattern analysis completed', {
+      patternCount: patterns.length,
+      insightCount: insights.length
+    });
+    
+    return {
+      timestamp: new Date(),
+      patterns,
+      insights,
+      raw_response: response
+    };
+  } catch (error) {
+    logger.error('Error analyzing alert patterns', { error: error.message });
+    return {
+      timestamp: new Date(),
+      patterns: [],
+      insights: [],
+      message: 'Failed to analyze alert patterns'
+    };
+  }
+}
+
+/**
+ * Explain an anomaly in detail
+ * @param {Object} anomaly - Anomaly data
+ * @param {Object} contextData - Additional context data
+ * @returns {Promise<Object>} - Detailed explanation
+ */
+async function explainAnomaly(anomaly, contextData = {}) {
+  logger.debug('Explaining anomaly', { anomalyId: anomaly.id });
+  
+  try {
+    const modelName = configData.models.anomalyDetection;
+    
+    // Prepare context
+    const context = JSON.stringify({
+      anomaly,
+      context: contextData
+    }, null, 2);
+    
+    // Prepare prompt
+    const prompt = `As a monitoring system expert, explain the following anomaly in detail:\n${context}\n\n` +
+                  `Provide a detailed explanation of what might be causing this anomaly, its potential impact, ` +
+                  `and recommended troubleshooting steps. Include technical details that would help an engineer understand and address the issue.`;
+    
+    // Generate completion
+    const response = await generateCompletion(modelName, prompt);
+    
+    // Extract key sections
+    const causeSection = response.match(/Cause:([\s\S]*?)(?:Impact:|$)/i);
+    const impactSection = response.match(/Impact:([\s\S]*?)(?:Troubleshooting:|$)/i);
+    const troubleshootingSection = response.match(/Troubleshooting:([\s\S]*?)(?:$)/i);
+    
+    const explanation = {
+      cause: causeSection && causeSection[1] ? causeSection[1].trim() : response.substring(0, 200),
+      impact: impactSection && impactSection[1] ? impactSection[1].trim() : null,
+      troubleshooting: troubleshootingSection && troubleshootingSection[1] ? 
+        troubleshootingSection[1].split('\n')
+          .filter(line => line.trim())
+          .map(line => line.replace(/^[•\-\d\.\s]+/, '').trim())
+          .filter(line => line.length > 0) : 
+        []
+    };
+    
+    logger.info('Anomaly explanation completed');
+    
+    return {
+      timestamp: new Date(),
+      explanation,
+      raw_response: response
+    };
+  } catch (error) {
+    logger.error('Error explaining anomaly', { error: error.message });
+    return {
+      timestamp: new Date(),
+      explanation: {
+        cause: 'Failed to generate explanation',
+        impact: null,
+        troubleshooting: []
+      },
+      message: 'Failed to explain anomaly'
+    };
+  }
+}
+
+/**
+ * Predict future resource usage
+ * @param {Object} historicalData - Historical metrics data
+ * @param {number} hours - Hours to forecast
+ * @returns {Promise<Object>} - Resource usage predictions
+ */
+async function predictResourceUsage(historicalData, hours = 24) {
+  logger.debug('Predicting resource usage', { hours });
+  
+  try {
+    const modelName = configData.models.trendAnalysis;
+    
+    // Prepare context
+    const context = JSON.stringify({
+      historicalData,
+      forecast_hours: hours
+    }, null, 2);
+    
+    // Prepare prompt
+    const prompt = `As a monitoring system, analyze the following historical data and predict resource usage for the next ${hours} hours:\n${context}\n\n` +
+                  `For each resource type (CPU, memory, network, disk), provide predicted values at 4-hour intervals. ` +
+                  `Include confidence levels and potential peak times. Format predictions as JSON.`;
+    
+    // Generate completion
+    const response = await generateCompletion(modelName, prompt);
+    
+    // Try to extract JSON
+    let predictions = [];
+    try {
+      // Look for JSON in the response
+      const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || response.match(/\{[\s\S]*\}/);
+      
+      if (jsonMatch) {
+        const jsonStr = jsonMatch[1] || jsonMatch[0];
+        const parsed = JSON.parse(jsonStr);
+        
+        if (parsed.predictions) {
+          predictions = parsed.predictions;
+        } else if (Array.isArray(parsed)) {
+          predictions = parsed;
+        } else {
+          // Try to extract from object structure
+          predictions = Object.keys(parsed).map(key => {
+            if (typeof parsed[key] === 'object') {
+              return {
+                resource: key,
+                ...parsed[key]
+              };
+            }
+            return null;
+          }).filter(item => item !== null);
+        }
+      }
+    } catch (e) {
+      // JSON parsing failed, try to extract manually
+      logger.warn('Failed to parse JSON from prediction response', { error: e.message });
+      
+      // Look for resource sections
+      const resources = ['CPU', 'Memory', 'Network', 'Disk'];
+      
+      for (const resource of resources) {
+        const resourceSection = response.match(new RegExp(`${resource}[:\\s]+(.*?)(?=(?:${resources.join('|')})[:\\s]+|$)`, 'is'));
+        
+        if (resourceSection && resourceSection[1]) {
+          // Try to extract predictions from text
+          const prediction = {
+            resource: resource.toLowerCase(),
+            values: []
+          };
+          
+          const lines = resourceSection[1].split('\n');
+          for (const line of lines) {
+            // Look for time + value patterns (e.g., "4 hours: 45%")
+            const timeValueMatch = line.match(/(\d+)\s*hours?:\s*([\d\.]+)%?/i);
+            if (timeValueMatch) {
+              prediction.values.push({
+                hour: parseInt(timeValueMatch[1]),
+                value: parseFloat(timeValueMatch[2])
+              });
+            }
+          }
+          
+          if (prediction.values.length > 0) {
+            predictions.push(prediction);
+          }
+        }
+      }
+    }
+    
+    logger.info('Resource usage prediction completed', {
+      resourceTypes: predictions.length
+    });
+    
+    return {
+      timestamp: new Date(),
+      predictions,
+      forecast_hours: hours,
+      raw_response: response
+    };
+  } catch (error) {
+    logger.error('Error predicting resource usage', { error: error.message });
+    return {
+      timestamp: new Date(),
+      predictions: [],
+      message: 'Failed to predict resource usage'
+    };
+  }
+}
+
+/**
+ * Correlate metrics to find relationships
+ * @param {Object} metricsData - Multiple metrics data
+ * @returns {Promise<Object>} - Correlation analysis
+ */
+async function correlateMetrics(metricsData) {
+  logger.debug('Correlating metrics');
+  
+  try {
+    const modelName = configData.models.anomalyDetection;
+    
+    // Prepare context
+    const context = JSON.stringify(metricsData, null, 2);
+    
+    // Prepare prompt
+    const prompt = `As a monitoring system, analyze the following metrics data to identify correlations and relationships:\n${context}\n\n` +
+                  `Identify metrics that show strong correlations, causal relationships, or interesting patterns when viewed together. ` +
+                  `Explain each correlation and its potential significance for system health or performance.`;
+    
+    // Generate completion
+    const response = await generateCompletion(modelName, prompt);
+    
+    // Process the response to extract correlations
+    const correlations = [];
+    
+    // Extract correlation sections
+    const correlationPatterns = [
+      /Correlation (\d+):([\s\S]*?)(?=Correlation \d+:|$)/gi,
+      /(\d+)\.\s+([^:]+):([\s\S]*?)(?=\d+\.\s+|$)/g,
+      /([^:]+) and ([^:]+):([\s\S]*?)(?=\n\n|$)/g
+    ];
+    
+    for (const pattern of correlationPatterns) {
+      let match;
+      while ((match = pattern.exec(response)) !== null) {
+        const description = match[2] || `${match[1]} and ${match[2]}`;
+        const details = match[3] || match[2] || match[1];
+        
+        if (description && details) {
+          correlations.push({
+            description: description.trim(),
+            details: details.trim(),
+            significance: determineSignificance(details)
+          });
+        }
+      }
+      
+      if (correlations.length > 0) {
+        break; // Stop after the first successful pattern match
+      }
+    }
+    
+    // If pattern matching failed, try to split by double newlines
+    if (correlations.length === 0) {
+      const sections = response.split('\n\n').filter(s => s.trim().length > 0);
+      for (const section of sections) {
+        if (section.includes(':')) {
+          const parts = section.split(':');
+          correlations.push({
+            description: parts[0].trim(),
+            details: parts.slice(1).join(':').trim(),
+            significance: determineSignificance(section)
+          });
+        }
+      }
+    }
+    
+    logger.info('Metric correlation completed', {
+      correlationsFound: correlations.length
+    });
+    
+    return {
+      timestamp: new Date(),
+      correlations,
+      raw_response: response
+    };
+  } catch (error) {
+    logger.error('Error correlating metrics', { error: error.message });
+    return {
+      timestamp: new Date(),
+      correlations: [],
+      message: 'Failed to correlate metrics'
+    };
+  }
+}
+
+/**
  * Generate completion from a model
  * @param {string} model - Model name
  * @param {string} prompt - Prompt text
@@ -327,51 +666,100 @@ async function generateEmbeddings(model, text) {
 }
 
 /**
- * Analyze the anomaly detection response
+ * Process the anomaly detection response
  * @param {string} response - Model response
- * @param {Object} originalData - Original input data
+ * @param {Object} originalData - Original metrics data
  * @returns {Object} - Structured anomaly results
  */
 function analyzeAnomalyResponse(response, originalData) {
   // This is a simplified implementation
-  // In a real system, this would use more sophisticated analysis
+  // In a real system, this would use more sophisticated parsing
+  const anomalies = [];
+  let overallSeverity = 'info';
   
-  // Extract potential anomalies (this is very simplified)
-  const anomalyPatterns = [
-    /anomaly detected.*?([\w\s]+)/gi,
-    /unusual pattern.*?([\w\s]+)/gi,
-    /suspicious activity.*?([\w\s]+)/gi,
-    /abnormal.*?([\w\s]+)/gi,
-    /outside normal range.*?([\w\s]+)/gi
-  ];
+  // Extract severity information from the response
+  const severityMapping = {
+    'critical': 4,
+    'error': 3,
+    'warning': 2,
+    'info': 1
+  };
   
-  let anomalies = [];
-  let highestSeverity = 'info';
+  // Check for severity mentions
+  if (response.toLowerCase().includes('critical')) {
+    overallSeverity = 'critical';
+  } else if (response.toLowerCase().includes('error')) {
+    overallSeverity = 'error';
+  } else if (response.toLowerCase().includes('warning')) {
+    overallSeverity = 'warning';
+  }
   
-  // Extract anomalies using patterns
-  anomalyPatterns.forEach(pattern => {
-    const matches = [...response.matchAll(pattern)];
-    matches.forEach(match => {
-      if (match[1]) {
+  // Extract anomalies from response
+  // Try to find numbered lists, bullet points, or paragraph breaks
+  
+  // First check for numbered lists or bullet points
+  const bulletMatches = response.match(/(?:^|\n)(?:\d+\.|\*|-)\s+(.*?)(?=(?:\n(?:\d+\.|\*|-)|$))/g);
+  if (bulletMatches && bulletMatches.length > 0) {
+    bulletMatches.forEach(match => {
+      const text = match.replace(/(?:^|\n)(?:\d+\.|\*|-)\s+/, '').trim();
+      if (text.length > 0) {
+        let anomalySeverity = 'info';
+        
+        // Try to determine severity from text
+        if (text.toLowerCase().includes('critical')) {
+          anomalySeverity = 'critical';
+        } else if (text.toLowerCase().includes('error')) {
+          anomalySeverity = 'error';
+        } else if (text.toLowerCase().includes('warning')) {
+          anomalySeverity = 'warning';
+        }
+        
         anomalies.push({
-          description: match[0],
-          resource: match[1].trim(),
-          severity: determineSeverity(match[0])
+          description: text,
+          severity: anomalySeverity,
+          confidence: 0.8,
+          detectedAt: new Date()
         });
+        
+        // Update overall severity if this anomaly is more severe
+        if (severityMapping[anomalySeverity] > severityMapping[overallSeverity]) {
+          overallSeverity = anomalySeverity;
+        }
       }
     });
-  });
-  
-  // Remove duplicates and determine highest severity
-  anomalies = deduplicateAnomalies(anomalies);
-  anomalies.forEach(anomaly => {
-    highestSeverity = upgradeSeverity(highestSeverity, anomaly.severity);
-  });
+  } else {
+    // If no bullet points, split by paragraphs
+    const paragraphs = response.split('\n\n').filter(p => p.trim().length > 0);
+    paragraphs.forEach(paragraph => {
+      let anomalySeverity = 'info';
+      
+      // Try to determine severity from text
+      if (paragraph.toLowerCase().includes('critical')) {
+        anomalySeverity = 'critical';
+      } else if (paragraph.toLowerCase().includes('error')) {
+        anomalySeverity = 'error';
+      } else if (paragraph.toLowerCase().includes('warning')) {
+        anomalySeverity = 'warning';
+      }
+      
+      anomalies.push({
+        description: paragraph.trim(),
+        severity: anomalySeverity,
+        confidence: 0.7,
+        detectedAt: new Date()
+      });
+      
+      // Update overall severity if this anomaly is more severe
+      if (severityMapping[anomalySeverity] > severityMapping[overallSeverity]) {
+        overallSeverity = anomalySeverity;
+      }
+    });
+  }
   
   return {
     timestamp: new Date(),
     anomalies,
-    severity: highestSeverity,
+    severity: overallSeverity,
     raw_response: response
   };
 }
@@ -386,38 +774,53 @@ function parseTrendAnalysisResponse(response) {
   // In a real system, this would use more sophisticated parsing
   
   const trends = [];
-  const forecastData = {};
   
-  // Extract trends (very simplified)
-  const trendPatterns = [
-    /trend:.*?([\w\s]+)/gi,
-    /pattern:.*?([\w\s]+)/gi,
-    /forecast:.*?([\w\s]+)/gi
-  ];
+  // Extract trends from response
+  // Look for specific sections or patterns
+  const trendSection = response.match(/Trends:([\s\S]*?)(?:Forecast:|$)/i);
   
-  trendPatterns.forEach(pattern => {
-    const matches = [...response.matchAll(pattern)];
-    matches.forEach(match => {
-      if (match[1]) {
+  if (trendSection && trendSection[1]) {
+    // Split by bullet points or numbered lists
+    const trendLines = trendSection[1].split('\n').filter(line => line.trim().length > 0);
+    
+    trendLines.forEach(line => {
+      // Clean up the line
+      const cleanLine = line.replace(/^(?:\d+\.|\*|-)\s+/, '').trim();
+      
+      if (cleanLine.length > 0) {
+        let direction = 'stable';
+        if (cleanLine.toLowerCase().includes('increase') || cleanLine.toLowerCase().includes('rising')) {
+          direction = 'increasing';
+        } else if (cleanLine.toLowerCase().includes('decrease') || cleanLine.toLowerCase().includes('declining')) {
+          direction = 'decreasing';
+        } else if (cleanLine.toLowerCase().includes('fluctuat') || cleanLine.toLowerCase().includes('oscillat')) {
+          direction = 'fluctuating';
+        }
+        
         trends.push({
-          description: match[0],
-          details: match[1].trim()
+          description: cleanLine,
+          direction,
+          confidence: 0.8
         });
       }
     });
-  });
+  }
   
-  // Try to extract forecast data (simplified)
-  // In a real system, this would be more structured
-  const forecastMatch = response.match(/forecast for next 24 hours:.*?([\s\S]+?)(?:\n\n|\Z)/i);
-  if (forecastMatch && forecastMatch[1]) {
-    forecastData.description = forecastMatch[1].trim();
+  // Extract forecast information
+  const forecastSection = response.match(/Forecast:([\s\S]*?)(?:$)/i);
+  let forecast = {};
+  
+  if (forecastSection && forecastSection[1]) {
+    forecast = {
+      description: forecastSection[1].trim(),
+      generatedAt: new Date()
+    };
   }
   
   return {
     timestamp: new Date(),
     trends,
-    forecast: forecastData,
+    forecast,
     raw_response: response
   };
 }
@@ -476,86 +879,49 @@ function parseRecommendationsResponse(response) {
 }
 
 /**
- * Determine the severity of an anomaly
- * @param {string} text - Anomaly description
- * @returns {string} - Severity level (info, warning, error, critical)
- */
-function determineSeverity(text) {
-  const lowerText = text.toLowerCase();
-  
-  if (lowerText.includes('critical') || 
-      lowerText.includes('severe') || 
-      lowerText.includes('failure')) {
-    return 'critical';
-  } else if (lowerText.includes('error') || 
-             lowerText.includes('high') || 
-             lowerText.includes('significant')) {
-    return 'error';
-  } else if (lowerText.includes('warning') || 
-             lowerText.includes('unusual') || 
-             lowerText.includes('attention')) {
-    return 'warning';
-  } else {
-    return 'info';
-  }
-}
-
-/**
- * Determine priority of a recommendation
- * @param {string} text - Recommendation text
- * @returns {string} - Priority level (low, medium, high)
+ * Determine priority from text
  */
 function determinePriority(text) {
   const lowerText = text.toLowerCase();
   
-  if (lowerText.includes('critical') || 
-      lowerText.includes('urgent') || 
-      lowerText.includes('immediately') ||
-      lowerText.includes('high priority')) {
+  if (lowerText.includes('high priority') || lowerText.includes('critical') || lowerText.includes('urgent')) {
     return 'high';
-  } else if (lowerText.includes('recommend') || 
-             lowerText.includes('should') || 
-             lowerText.includes('important')) {
+  } else if (lowerText.includes('medium priority') || lowerText.includes('moderate')) {
     return 'medium';
-  } else {
+  } else if (lowerText.includes('low priority')) {
     return 'low';
   }
-}
-
-/**
- * Upgrade severity if new severity is higher
- * @param {string} currentSeverity - Current severity
- * @param {string} newSeverity - New severity
- * @returns {string} - Highest severity
- */
-function upgradeSeverity(currentSeverity, newSeverity) {
-  const severityLevels = {
-    'info': 0,
-    'warning': 1,
-    'error': 2,
-    'critical': 3
-  };
   
-  if (severityLevels[newSeverity] > severityLevels[currentSeverity]) {
-    return newSeverity;
+  // If no explicit priority, try to determine from language
+  if (lowerText.includes('immediately') || lowerText.includes('as soon as possible') || 
+      lowerText.includes('crucial') || lowerText.includes('severe')) {
+    return 'high';
+  } else if (lowerText.includes('consider') || lowerText.includes('might want to') || 
+      lowerText.includes('could')) {
+    return 'low';
   }
   
-  return currentSeverity;
+  // Default to medium
+  return 'medium';
 }
 
 /**
- * Remove duplicate anomalies
- * @param {Array} anomalies - List of anomalies
- * @returns {Array} - Deduplicated list
+ * Determine significance of correlation
  */
-function deduplicateAnomalies(anomalies) {
-  const seen = new Set();
-  return anomalies.filter(anomaly => {
-    const key = `${anomaly.resource}-${anomaly.description.substring(0, 20)}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
+function determineSignificance(text) {
+  const lowerText = text.toLowerCase();
+  
+  if (lowerText.includes('strong correlation') || lowerText.includes('highly significant') || 
+      lowerText.includes('critical relationship') || lowerText.includes('major impact')) {
+    return 'high';
+  } else if (lowerText.includes('moderate correlation') || lowerText.includes('some significance') || 
+      lowerText.includes('potential relationship')) {
+    return 'medium';
+  } else if (lowerText.includes('weak correlation') || lowerText.includes('minor significance') || 
+      lowerText.includes('slight relationship')) {
+    return 'low';
+  }
+  
+  // Default to medium
+  return 'medium';
 } 

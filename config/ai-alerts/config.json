@@ -1,0 +1,72 @@
+{
+  "analysis": {
+    "patternAnalysis": {
+      "enabled": true,
+      "interval": 3600000,
+      "maxHistorySize": 1000,
+      "minAlertsForAnalysis": 10
+    },
+    "anomalyDetection": {
+      "enabled": true,
+      "resourceTypes": ["cpu", "memory", "network"],
+      "minConfidence": 0.7,
+      "maxAnomaliesPerResource": 5
+    },
+    "recommendations": {
+      "enabled": true,
+      "maxRecommendations": 5,
+      "minSeverity": "warning",
+      "includeHistoricalContext": true
+    },
+    "correlations": {
+      "enabled": true,
+      "maxCorrelations": 3,
+      "minSignificance": "medium",
+      "lookbackPeriod": 3600000
+    },
+    "predictions": {
+      "enabled": true,
+      "forecastHours": 24,
+      "intervalHours": 4,
+      "minConfidence": 0.8
+    }
+  },
+  "notifications": {
+    "aiInsights": {
+      "enabled": true,
+      "channels": ["websocket", "console"],
+      "minSeverity": "warning",
+      "includeRecommendations": true,
+      "includeCorrelations": true
+    },
+    "predictions": {
+      "enabled": true,
+      "channels": ["websocket"],
+      "threshold": 0.9,
+      "includeTrends": true
+    }
+  },
+  "models": {
+    "anomalyDetection": {
+      "model": "llama2",
+      "temperature": 0.1,
+      "maxTokens": 1024
+    },
+    "patternAnalysis": {
+      "model": "llama2",
+      "temperature": 0.2,
+      "maxTokens": 2048
+    },
+    "recommendations": {
+      "model": "llama2",
+      "temperature": 0.3,
+      "maxTokens": 1024
+    }
+  },
+  "logging": {
+    "level": "info",
+    "file": "logs/ai-alerts.log",
+    "maxSize": "10m",
+    "maxFiles": 5
+  }
+} 

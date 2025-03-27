@@ -1,0 +1,83 @@
+{
+  "channels": [
+    {
+      "id": "console",
+      "name": "Console",
+      "type": "console",
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "websocket",
+      "name": "WebSocket",
+      "type": "websocket",
+      "enabled": true,
+      "config": {
+        "channel": "alerts"
+      }
+    },
+    {
+      "id": "email_ops",
+      "name": "Email - Operations Team",
+      "type": "email",
+      "enabled": false,
+      "config": {
+        "recipients": ["ops@example.com"],
+        "from": "alerts@example.com",
+        "subject_template": "[{{severity | uppercase}}] {{alert.name}}",
+        "body_template": "Alert: {{alert.name}}\nSeverity: {{alert.severity}}\nStatus: {{alert.status}}\nStart: {{alert.startsAt}}\n\n{{alert.annotations.description}}"
+      }
+    },
+    {
+      "id": "slack_ops",
+      "name": "Slack - Operations Channel",
+      "type": "slack",
+      "enabled": false,
+      "config": {
+        "webhook_url": "https://hooks.slack.com/services/XXXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXX",
+        "channel": "#ops-alerts",
+        "username": "Alert Bot",
+        "icon_emoji": ":warning:",
+        "message_template": "*[{{alert.severity | uppercase}}] {{alert.name}}*\n{{alert.annotations.description}}\n_Status: {{alert.status}} | Started: {{alert.startsAt}}_"
+      }
+    },
+    {
+      "id": "pagerduty_critical",
+      "name": "PagerDuty - Critical Alerts",
+      "type": "pagerduty",
+      "enabled": false,
+      "config": {
+        "service_key": "your-pagerduty-service-key",
+        "severity_mapping": {
+          "critical": "critical",
+          "error": "error",
+          "warning": "warning",
+          "info": "info"
+        },
+        "min_severity": "error"
+      }
+    },
+    {
+      "id": "teams_general",
+      "name": "Microsoft Teams - General",
+      "type": "msteams",
+      "enabled": false,
+      "config": {
+        "webhook_url": "https://outlook.office.com/webhook/XXXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXXXXX",
+        "title_template": "[{{alert.severity | uppercase}}] {{alert.name}}",
+        "message_template": "{{alert.annotations.description}}\n\nStatus: {{alert.status}}\nStarted: {{alert.startsAt}}"
+      }
+    },
+    {
+      "id": "ai_analysis",
+      "name": "AI Analysis Feedback",
+      "type": "ai_feedback",
+      "enabled": true,
+      "config": {
+        "model": "llama2",
+        "feedback_type": "alert_analysis",
+        "min_severity": "warning"
+      }
+    }
+  ]
+} 
