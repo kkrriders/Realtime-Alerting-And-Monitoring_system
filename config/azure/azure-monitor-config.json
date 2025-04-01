@@ -129,7 +129,7 @@
   "scheduledQueries": [
     {
       "name": "VM CPU Usage",
-      "schedule": "0/15 * * * *", // Every 15 minutes
+      "schedule": "0/15 * * * *", 
       "type": "metrics",
       "resourceId": "${AZURE_VM_RESOURCE_ID}",
       "metrics": ["Percentage CPU"],
@@ -140,7 +140,7 @@
     },
     {
       "name": "App Service HTTP 5xx",
-      "schedule": "0/10 * * * *", // Every 10 minutes
+      "schedule": "0/10 * * * *", 
       "type": "metrics",
       "resourceId": "${AZURE_APP_SERVICE_RESOURCE_ID}",
       "metrics": ["Http5xx"],
@@ -151,7 +151,7 @@
     },
     {
       "name": "Security Events",
-      "schedule": "0 * * * *", // Every hour
+      "schedule": "0 * * * *", 
       "type": "logs",
       "workspaceId": "${AZURE_LOG_ANALYTICS_WORKSPACE_ID}",
       "query": "SecurityEvent | where TimeGenerated > ago(1h) | summarize count() by Activity",

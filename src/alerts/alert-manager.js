@@ -2,10 +2,23 @@ import fs from 'fs/promises';
 import path from 'path';
 import winston from 'winston';
 import { EventEmitter } from 'events';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import alertAnalyzer from '../ai-integration/alert-analyzer.js';
 
-// Configure logger
+// Ensure logs directory exists
+async function ensureLogDirectory() {
+  const logDir = path.join(process.cwd(), 'logs');
+  try {
+    await fs.mkdir(logDir, { recursive: true });
+  } catch (error) {
+    // Ignore errors if directory already exists
+    if (error.code !== 'EEXIST') {
+      console.error('Error creating logs directory:', error.message);
+    }
+  }
+}
+
+// Configure logger with default configuration first
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
@@ -14,10 +27,20 @@ const logger = winston.createLogger({
   ),
   defaultMeta: { service: 'alert-manager' },
   transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: 'logs/alerts.log' })
+    new winston.transports.Console()
   ]
 });
+
+// Ensure logs directory exists and update logger
+(async () => {
+  try {
+    await ensureLogDirectory();
+    // Add file transport after ensuring directory exists
+    logger.add(new winston.transports.File({ filename: 'logs/alerts.log' }));
+  } catch (error) {
+    console.error('Error initializing logger:', error);
+  }
+})();
 
 // Alert severity levels
 const SEVERITY_LEVELS = {
@@ -45,6 +68,9 @@ class AlertManager extends EventEmitter {
   async initialize() {
     try {
       logger.info('Initializing Alert Manager...');
+      
+      // Ensure config directories exist
+      await this.ensureConfigDirectories();
       
       // Load alert rules and notification channels
       await this.loadAlertRules();
@@ -76,13 +102,48 @@ class AlertManager extends EventEmitter {
   }
 
   /**
+   * Ensure config directories exist
+   */
+  async ensureConfigDirectories() {
+    try {
+      const configDirs = [
+        path.join(process.cwd(), 'config'),
+        path.join(process.cwd(), 'config', 'alerts'),
+        path.join(process.cwd(), 'config', 'ai-alerts')
+      ];
+      
+      for (const dir of configDirs) {
+        await fs.mkdir(dir, { recursive: true });
+      }
+      
+      logger.debug('Config directories ensured');
+    } catch (error) {
+      logger.warn('Error ensuring config directories', { error: error.message });
+      // Continue execution even if directories can't be created
+    }
+  }
+
+  /**
    * Load alert rules from config file
    */
   async loadAlertRules() {
     try {
       const rulesPath = path.join(process.cwd(), 'config', 'alerts', 'rules.json');
+      
+      // Check if file exists, create default if not
+      try {
+        await fs.access(rulesPath);
+      } catch (error) {
+        // File doesn't exist, create default
+        await this.createDefaultRulesConfig(rulesPath);
+      }
+      
       const rulesData = await fs.readFile(rulesPath, 'utf-8');
-      this.alertRules = JSON.parse(rulesData);
+      const parsedData = JSON.parse(rulesData);
+      
+      // Support both flat array and { rules: [] } format
+      this.alertRules = Array.isArray(parsedData) ? parsedData : 
+                        (parsedData.rules || []);
       
       logger.info('Alert rules loaded', { ruleCount: this.alertRules.length });
     } catch (error) {
@@ -98,8 +159,21 @@ class AlertManager extends EventEmitter {
   async loadNotificationChannels() {
     try {
       const channelsPath = path.join(process.cwd(), 'config', 'alerts', 'channels.json');
+      
+      // Check if file exists, create default if not
+      try {
+        await fs.access(channelsPath);
+      } catch (error) {
+        // File doesn't exist, create default
+        await this.createDefaultChannelsConfig(channelsPath);
+      }
+      
       const channelsData = await fs.readFile(channelsPath, 'utf-8');
-      this.channels = JSON.parse(channelsData);
+      const parsedData = JSON.parse(channelsData);
+      
+      // Support both flat array and { channels: [] } format
+      this.channels = Array.isArray(parsedData) ? parsedData : 
+                      (parsedData.channels || []);
       
       logger.info('Notification channels loaded', { channelCount: this.channels.length });
     } catch (error) {
@@ -110,33 +184,180 @@ class AlertManager extends EventEmitter {
   }
 
   /**
+   * Create default alert rules configuration
+   * @param {string} filePath - Path to write the config file
+   */
+  async createDefaultRulesConfig(filePath) {
+    const defaultRules = {
+      "rules": [
+        {
+          "id": "cpu_high",
+          "name": "High CPU Usage",
+          "description": "Alert when CPU usage is above 80% for 5 minutes",
+          "type": "threshold",
+          "source": "prometheus",
+          "query": "system_cpu_usage > 80",
+          "condition": ">",
+          "threshold": 80,
+          "duration": "5m",
+          "severity": "warning",
+          "enabled": true,
+          "labels": { "resource": "cpu", "team": "infrastructure" },
+          "annotations": {
+            "summary": "High CPU Usage detected",
+            "description": "CPU usage has been above 80% for more than 5 minutes"
+          }
+        },
+        {
+          "id": "memory_high",
+          "name": "High Memory Usage",
+          "description": "Alert when memory usage is above 90% for 10 minutes",
+          "type": "threshold",
+          "source": "prometheus",
+          "query": "system_memory_usage_percent",
+          "condition": ">",
+          "threshold": 90,
+          "duration": "10m",
+          "severity": "warning",
+          "enabled": true,
+          "labels": { "resource": "memory", "team": "infrastructure" },
+          "annotations": {
+            "summary": "High Memory Usage detected",
+            "description": "Memory usage has been above 90% for more than 10 minutes"
+          }
+        },
+        {
+          "id": "ai_cpu_anomaly",
+          "name": "AI-Detected CPU Anomaly",
+          "description": "Alert when the AI system detects an anomaly in CPU patterns",
+          "type": "ai",
+          "source": "ollama",
+          "resourceType": "cpu",
+          "minSeverity": "warning",
+          "enabled": true,
+          "labels": { "resource": "cpu", "team": "ai-ops" },
+          "annotations": {
+            "summary": "AI detected CPU anomaly",
+            "description": "The AI system has detected an unusual pattern in CPU usage"
+          }
+        }
+      ]
+    };
+    
+    try {
+      await fs.writeFile(filePath, JSON.stringify(defaultRules, null, 2), 'utf-8');
+      logger.info('Created default alert rules configuration');
+    } catch (error) {
+      logger.error('Failed to create default alert rules configuration', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Create default notification channels configuration
+   * @param {string} filePath - Path to write the config file
+   */
+  async createDefaultChannelsConfig(filePath) {
+    const defaultChannels = {
+      "channels": [
+        {
+          "id": "console",
+          "name": "Console",
+          "type": "console",
+          "enabled": true,
+          "config": {}
+        },
+        {
+          "id": "websocket",
+          "name": "WebSocket",
+          "type": "websocket",
+          "enabled": true,
+          "config": {
+            "channel": "alerts"
+          }
+        },
+        {
+          "id": "ai_analysis",
+          "name": "AI Analysis Feedback",
+          "type": "ai_feedback",
+          "enabled": true,
+          "config": {
+            "model": "llama2",
+            "feedbackType": "alert_analysis",
+            "minSeverity": "warning"
+          }
+        }
+      ]
+    };
+    
+    try {
+      await fs.writeFile(filePath, JSON.stringify(defaultChannels, null, 2), 'utf-8');
+      logger.info('Created default notification channels configuration');
+    } catch (error) {
+      logger.error('Failed to create default notification channels configuration', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
    * Initialize WebSocket server for real-time alerts
    */
   initializeWebSocketServer() {
-    const port = process.env.ALERT_WS_PORT || 3002;
-    
-    this.wsServer = new WebSocketServer({ port });
-    
-    this.wsServer.on('connection', (ws) => {
-      this.wsClients.add(ws);
-      logger.info('New WebSocket client connected', { clientCount: this.wsClients.size });
+    try {
+      const port = process.env.ALERT_WS_PORT || 3002;
       
-      // Send active alerts to new client
-      const activeAlertsList = Array.from(this.activeAlerts.values());
-      if (activeAlertsList.length > 0) {
-        ws.send(JSON.stringify({
-          type: 'active_alerts',
-          alerts: activeAlertsList
-        }));
+      // Close existing server if one exists
+      if (this.wsServer) {
+        try {
+          this.wsServer.close();
+          this.wsClients.clear();
+        } catch (error) {
+          logger.warn('Error closing existing WebSocket server', { error: error.message });
+        }
       }
       
-      ws.on('close', () => {
-        this.wsClients.delete(ws);
-        logger.info('WebSocket client disconnected', { clientCount: this.wsClients.size });
+      // Create new server
+      this.wsServer = new WebSocketServer({ port });
+      
+      this.wsServer.on('connection', (ws) => {
+        this.wsClients.add(ws);
+        logger.info('New WebSocket client connected', { clientCount: this.wsClients.size });
+        
+        // Send active alerts to new client
+        const activeAlertsList = Array.from(this.activeAlerts.values());
+        if (activeAlertsList.length > 0) {
+          try {
+            ws.send(JSON.stringify({
+              type: 'active_alerts',
+              alerts: activeAlertsList
+            }));
+          } catch (error) {
+            logger.error('Error sending active alerts to new client', { error: error.message });
+          }
+        }
+        
+        ws.on('close', () => {
+          this.wsClients.delete(ws);
+          logger.info('WebSocket client disconnected', { clientCount: this.wsClients.size });
+        });
+        
+        ws.on('error', (error) => {
+          logger.error('WebSocket client error', { error: error.message });
+          this.wsClients.delete(ws);
+        });
       });
-    });
-    
-    logger.info('WebSocket server initialized', { port });
+      
+      this.wsServer.on('error', (error) => {
+        logger.error('WebSocket server error', { error: error.message });
+      });
+      
+      logger.info('WebSocket server initialized', { port });
+    } catch (error) {
+      logger.error('Failed to initialize WebSocket server', { error: error.message });
+      // Reset properties in case of error
+      this.wsServer = null;
+      this.wsClients.clear();
+    }
   }
 
   /**
@@ -201,6 +422,7 @@ class AlertManager extends EventEmitter {
           break;
           
         case 'ai_anomaly':
+        case 'ai': // Support both ai_anomaly and ai types
           // AI anomaly rules are processed differently
           return false;
           
@@ -236,75 +458,252 @@ class AlertManager extends EventEmitter {
    * @returns {boolean} - Whether the threshold was exceeded
    */
   evaluateThresholdRule(rule, metrics) {
-    // Extract the metric value using the query
-    // This is a simplified example - in a real system, you would use a proper query language
-    
-    const metricPath = rule.query.split('.');
-    let value = metrics;
-    
-    for (const segment of metricPath) {
-      if (value && typeof value === 'object' && segment in value) {
-        value = value[segment];
+    try {
+      // Extract the metric value using the query
+      let value;
+      
+      // Handle different query formats
+      if (rule.query.includes('{')) {
+        // Prometheus-style query with labels
+        const queryParts = rule.query.split(/\s+/);
+        const metricWithLabels = queryParts[0];
+        const operator = queryParts[1] || '>';
+        const threshold = parseFloat(queryParts[2] || rule.threshold);
+        
+        // Extract metric name and labels
+        const metricMatch = metricWithLabels.match(/^([^{]+)(?:\{(.+)\})?/);
+        if (!metricMatch) {
+          logger.warn('Invalid metric format in query', { query: rule.query });
+          return false;
+        }
+        
+        const metricName = metricMatch[1];
+        const labels = metricMatch[2] ? this.parseLabels(metricMatch[2]) : {};
+        
+        // Find matching metric
+        value = this.findMetricByNameAndLabels(metrics, metricName, labels);
+      } else if (rule.query.includes('.')) {
+        // Dot notation for nested objects
+        const metricPath = rule.query.split('.');
+        value = this.getValueByPath(metrics, metricPath);
       } else {
-        logger.debug('Metric path not found in data', { 
+        // Simple metric name
+        value = metrics[rule.query];
+      }
+      
+      // If value is not found or not a number, return false
+      if (value === undefined || value === null) {
+        logger.debug('Metric not found in data', { 
           ruleId: rule.id,
-          metricPath: rule.query
+          query: rule.query
         });
         return false;
       }
+      
+      // If value is not a number, try to convert it
+      if (typeof value !== 'number') {
+        value = parseFloat(value);
+        if (isNaN(value)) {
+          logger.debug('Metric value is not a number', { 
+            ruleId: rule.id,
+            value
+          });
+          return false;
+        }
+      }
+      
+      // Get condition and threshold
+      const condition = rule.condition || '>';
+      const threshold = rule.threshold;
+      
+      // Check the threshold condition
+      switch (condition) {
+        case '>':
+          if (value > threshold) {
+            logger.debug('Threshold rule triggered (>)', { 
+              ruleId: rule.id, 
+              value, 
+              threshold 
+            });
+            return true;
+          }
+          break;
+          
+        case '>=':
+          if (value >= threshold) {
+            logger.debug('Threshold rule triggered (>=)', { 
+              ruleId: rule.id, 
+              value, 
+              threshold 
+            });
+            return true;
+          }
+          break;
+          
+        case '<':
+          if (value < threshold) {
+            logger.debug('Threshold rule triggered (<)', { 
+              ruleId: rule.id, 
+              value, 
+              threshold 
+            });
+            return true;
+          }
+          break;
+          
+        case '<=':
+          if (value <= threshold) {
+            logger.debug('Threshold rule triggered (<=)', { 
+              ruleId: rule.id, 
+              value, 
+              threshold 
+            });
+            return true;
+          }
+          break;
+          
+        case '==':
+        case '=':
+          if (value === threshold) {
+            logger.debug('Threshold rule triggered (==)', { 
+              ruleId: rule.id, 
+              value, 
+              threshold 
+            });
+            return true;
+          }
+          break;
+          
+        case '!=':
+          if (value !== threshold) {
+            logger.debug('Threshold rule triggered (!=)', { 
+              ruleId: rule.id, 
+              value, 
+              threshold 
+            });
+            return true;
+          }
+          break;
+          
+        default:
+          logger.warn('Unknown condition operator', { 
+            ruleId: rule.id, 
+            condition 
+          });
+          return false;
+      }
+      
+      return false;
+    } catch (error) {
+      logger.error('Error evaluating threshold rule', { 
+        ruleId: rule.id, 
+        error: error.message 
+      });
+      return false;
     }
+  }
+  
+  /**
+   * Parse Prometheus-style labels from a query
+   * @param {string} labelsString - Labels string in format 'label1="value1",label2="value2"'
+   * @returns {Object} - Parsed labels object
+   */
+  parseLabels(labelsString) {
+    const labels = {};
+    const labelParts = labelsString.split(',');
     
-    // If value is not a number, try to convert it
-    if (typeof value !== 'number') {
-      value = parseFloat(value);
-      if (isNaN(value)) {
-        logger.debug('Metric value is not a number', { 
-          ruleId: rule.id,
-          value
-        });
-        return false;
+    for (const part of labelParts) {
+      const match = part.trim().match(/([^=]+)=(?:"([^"]*)"|\{([^}]*)\}|([^,]*))/);
+      if (match) {
+        const key = match[1].trim();
+        const value = match[2] || match[3] || match[4];
+        labels[key] = value;
       }
     }
     
-    // Check the threshold condition
-    if (rule.condition === '>' && value > rule.threshold) {
-      logger.debug('Threshold rule triggered (>)', { 
-        ruleId: rule.id,
-        value,
-        threshold: rule.threshold
-      });
-      return true;
-    } else if (rule.condition === '>=' && value >= rule.threshold) {
-      logger.debug('Threshold rule triggered (>=)', { 
-        ruleId: rule.id,
-        value,
-        threshold: rule.threshold
-      });
-      return true;
-    } else if (rule.condition === '<' && value < rule.threshold) {
-      logger.debug('Threshold rule triggered (<)', { 
-        ruleId: rule.id,
-        value,
-        threshold: rule.threshold
-      });
-      return true;
-    } else if (rule.condition === '<=' && value <= rule.threshold) {
-      logger.debug('Threshold rule triggered (<=)', { 
-        ruleId: rule.id,
-        value,
-        threshold: rule.threshold
-      });
-      return true;
-    } else if (rule.condition === '==' && value === rule.threshold) {
-      logger.debug('Threshold rule triggered (==)', { 
-        ruleId: rule.id,
-        value,
-        threshold: rule.threshold
-      });
-      return true;
+    return labels;
+  }
+  
+  /**
+   * Find a metric by name and labels
+   * @param {Object} metrics - Metrics data
+   * @param {string} name - Metric name
+   * @param {Object} labels - Labels to match
+   * @returns {number|null} - Metric value
+   */
+  findMetricByNameAndLabels(metrics, name, labels) {
+    // Simple case: direct match
+    if (metrics[name] !== undefined) {
+      if (Object.keys(labels).length === 0) {
+        return metrics[name];
+      }
+      
+      // Check if the metric has labels
+      if (metrics[name].labels && typeof metrics[name].value === 'number') {
+        const matchingLabels = Object.keys(labels).every(key => 
+          metrics[name].labels[key] === labels[key]
+        );
+        
+        if (matchingLabels) {
+          return metrics[name].value;
+        }
+      }
     }
     
-    return false;
+    // Look for matching metrics in arrays
+    for (const metricKey in metrics) {
+      if (Array.isArray(metrics[metricKey])) {
+        for (const metric of metrics[metricKey]) {
+          if (metric.name === name || metricKey === name) {
+            if (Object.keys(labels).length === 0) {
+              return metric.value;
+            }
+            
+            if (metric.labels) {
+              const matchingLabels = Object.keys(labels).every(key => 
+                metric.labels[key] === labels[key]
+              );
+              
+              if (matchingLabels) {
+                return metric.value;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Look for nested objects that might match
+    for (const key in metrics) {
+      if (typeof metrics[key] === 'object' && metrics[key] !== null) {
+        const nestedResult = this.findMetricByNameAndLabels(metrics[key], name, labels);
+        if (nestedResult !== null) {
+          return nestedResult;
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Get a value from an object by path
+   * @param {Object} obj - Object to get value from
+   * @param {Array} path - Path to the value
+   * @returns {*} - Value at the path
+   */
+  getValueByPath(obj, path) {
+    let current = obj;
+    
+    for (const segment of path) {
+      if (current === null || current === undefined || typeof current !== 'object') {
+        return undefined;
+      }
+      
+      current = current[segment];
+    }
+    
+    return current;
   }
 
   /**
@@ -501,45 +900,61 @@ class AlertManager extends EventEmitter {
    * @param {Object} metrics - Metrics data that triggered the alert
    */
   async createAlert(rule, metrics) {
-    // Check if the rule is already firing
-    if (this.activeAlerts.has(rule.id)) {
-      logger.debug('Alert already active for rule', { ruleId: rule.id });
-      return;
+    try {
+      // Validate inputs
+      if (!rule || !rule.id) {
+        logger.error('Cannot create alert: Invalid rule', { rule });
+        return;
+      }
+
+      // Check if the rule is already firing
+      if (this.activeAlerts.has(rule.id)) {
+        logger.debug('Alert already active for rule', { ruleId: rule.id });
+        return;
+      }
+      
+      logger.info('Creating new alert', { ruleId: rule.id, ruleName: rule.name });
+      
+      // Create the alert object with safe defaults
+      const alert = {
+        id: rule.id,
+        ruleId: rule.id,
+        ruleName: rule.name || 'Unnamed Rule',
+        severity: rule.severity || 'warning',
+        status: 'firing',
+        timestamp: new Date(),
+        value: this.extractAlertValue(rule, metrics || {}),
+        metrics: metrics || {},
+        labels: rule.labels || {},
+        annotations: rule.annotations || {
+          summary: rule.name || 'Alert triggered',
+          description: rule.description || 'No description provided'
+        },
+        source: rule.source || 'unknown'
+      };
+      
+      // Store the alert
+      this.activeAlerts.set(rule.id, alert);
+      
+      // Add to history
+      this.alertHistory.push(alert);
+      
+      // Trim history if too large
+      if (this.alertHistory.length > 1000) {
+        this.alertHistory = this.alertHistory.slice(-1000);
+      }
+      
+      // Emit alert event
+      this.emit('alert', alert);
+      
+      // Send notifications
+      await this.sendNotifications(alert);
+    } catch (error) {
+      logger.error('Error creating alert', { 
+        ruleId: rule?.id || 'unknown', 
+        error: error.message 
+      });
     }
-    
-    logger.info('Creating new alert', { ruleId: rule.id, ruleName: rule.name });
-    
-    // Create the alert object
-    const alert = {
-      id: rule.id,
-      ruleId: rule.id,
-      ruleName: rule.name,
-      severity: rule.severity,
-      status: 'firing',
-      timestamp: new Date(),
-      value: this.extractAlertValue(rule, metrics),
-      metrics,
-      labels: rule.labels || {},
-      annotations: rule.annotations || {},
-      source: rule.source
-    };
-    
-    // Store the alert
-    this.activeAlerts.set(rule.id, alert);
-    
-    // Add to history
-    this.alertHistory.push(alert);
-    
-    // Trim history if too large
-    if (this.alertHistory.length > 1000) {
-      this.alertHistory = this.alertHistory.slice(-1000);
-    }
-    
-    // Emit alert event
-    this.emit('alert', alert);
-    
-    // Send notifications
-    await this.sendNotifications(alert);
   }
 
   /**
@@ -585,19 +1000,31 @@ class AlertManager extends EventEmitter {
    */
   extractAlertValue(rule, metrics) {
     try {
-      // Extract the metric value using the query
-      const metricPath = rule.query.split('.');
-      let value = metrics;
-      
-      for (const segment of metricPath) {
-        if (value && typeof value === 'object' && segment in value) {
-          value = value[segment];
-        } else {
+      if (!rule.query) {
+        return 'N/A';
+      }
+
+      // Handle different query formats
+      if (rule.query.includes('{')) {
+        // Prometheus-style query with labels
+        const metricMatch = rule.query.match(/^([^{]+)(?:\{(.+)\})?/);
+        if (!metricMatch) {
           return 'N/A';
         }
+        
+        const metricName = metricMatch[1];
+        const labels = metricMatch[2] ? this.parseLabels(metricMatch[2]) : {};
+        
+        return this.findMetricByNameAndLabels(metrics, metricName, labels) || 'N/A';
+      } else if (rule.query.includes('.')) {
+        // Use getValueByPath for nested queries
+        const metricPath = rule.query.split('.');
+        const value = this.getValueByPath(metrics, metricPath);
+        return value !== undefined ? value : 'N/A';
+      } else {
+        // Simple metric name
+        return metrics[rule.query] !== undefined ? metrics[rule.query] : 'N/A';
       }
-      
-      return value;
     } catch (error) {
       logger.error('Error extracting alert value', { error: error.message });
       return 'Error';
@@ -697,11 +1124,6 @@ class AlertManager extends EventEmitter {
    * @param {Object} alert - Alert to notify about
    */
   async sendAiFeedbackNotification(channel, alert) {
-    if (!this.aiClient) {
-      logger.warn('AI client not available for feedback');
-      return;
-    }
-    
     // Only process alerts with severity meeting minimum threshold
     const alertSeverityLevel = SEVERITY_LEVELS[alert.severity] || 0;
     const minSeverityLevel = SEVERITY_LEVELS[channel.config.minSeverity || 'info'] || 0;
@@ -717,14 +1139,43 @@ class AlertManager extends EventEmitter {
     try {
       // Use the appropriate AI function based on feedback type
       if (channel.config.feedbackType === 'explanation') {
-        // This is handled separately in getAnomalyExplanation
-        logger.debug('Explanation feedback already processed');
-      } else if (channel.config.feedbackType === 'recommendation') {
-        const recommendations = await this.aiClient.getRecommendations({
-          alert,
-          recentAlerts: this.alertHistory.slice(-10),
-          metrics: alert.metrics
+        // Get explanation for the alert
+        const explanation = await alertAnalyzer.explainAnomaly(alert.metrics, {
+          resourceType: alert.labels?.resource || 'general',
+          alertId: alert.id
         });
+        
+        if (explanation && explanation.explanation) {
+          // Update the alert with explanation
+          const updatedAlert = {
+            ...alert,
+            annotations: {
+              ...alert.annotations,
+              explanation: explanation.explanation
+            },
+            aiAnalysis: explanation
+          };
+          
+          // Update in active alerts if still active
+          if (updatedAlert.status === 'firing' && this.activeAlerts.has(alert.id)) {
+            this.activeAlerts.set(alert.id, updatedAlert);
+          }
+          
+          // Emit update event
+          this.emit('alert_update', updatedAlert);
+          
+          // Send update via WebSocket
+          this.broadcastAlert(updatedAlert);
+          
+          logger.info('Added AI explanation to alert', { alertId: alert.id });
+        }
+      } else if (channel.config.feedbackType === 'recommendation' || 
+                 channel.config.feedbackType === 'alert_analysis') {
+        const recommendations = await alertAnalyzer.generateRecommendations(
+          alert,
+          this.alertHistory.slice(-10),
+          alert.metrics
+        );
         
         if (recommendations && recommendations.recommendations) {
           // Update the alert with recommendations
@@ -740,7 +1191,7 @@ class AlertManager extends EventEmitter {
           };
           
           // Update in active alerts if still active
-          if (updatedAlert.status === 'firing') {
+          if (updatedAlert.status === 'firing' && this.activeAlerts.has(alert.id)) {
             this.activeAlerts.set(alert.id, updatedAlert);
           }
           
@@ -754,13 +1205,13 @@ class AlertManager extends EventEmitter {
         }
       } else if (channel.config.feedbackType === 'correlation') {
         // Request metrics correlation analysis
-        const correlation = await this.aiClient.correlateMetrics({
+        const correlation = await alertAnalyzer.analyzeCorrelations(
           alert,
-          metrics: alert.metrics,
-          recentAlerts: this.alertHistory
+          alert.metrics,
+          this.alertHistory
             .filter(a => a.id !== alert.id)
             .slice(-5)
-        });
+        );
         
         if (correlation && correlation.correlations) {
           // Update the alert with correlation information
@@ -776,7 +1227,7 @@ class AlertManager extends EventEmitter {
           };
           
           // Update in active alerts if still active
-          if (updatedAlert.status === 'firing') {
+          if (updatedAlert.status === 'firing' && this.activeAlerts.has(alert.id)) {
             this.activeAlerts.set(alert.id, updatedAlert);
           }
           
@@ -806,15 +1257,89 @@ class AlertManager extends EventEmitter {
       return;
     }
     
-    const message = JSON.stringify({
-      type: alert.status === 'firing' ? 'alert' : 'resolve',
-      alert
-    });
-    
-    for (const client of this.wsClients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
+    try {
+      // Create a safer alert object with circular references removed
+      const safeAlert = this.createSafeAlertCopy(alert);
+      
+      const message = JSON.stringify({
+        type: alert.status === 'firing' ? 'alert' : 'resolve',
+        alert: safeAlert
+      });
+      
+      let sentCount = 0;
+      for (const client of this.wsClients) {
+        // Use the correct WebSocket.OPEN constant
+        if (client.readyState === WebSocket.OPEN) {
+          try {
+            client.send(message);
+            sentCount++;
+          } catch (error) {
+            logger.error('Error sending message to WebSocket client', { error: error.message });
+            // Remove problematic client
+            client.terminate();
+            this.wsClients.delete(client);
+          }
+        }
       }
+      
+      if (sentCount > 0) {
+        logger.debug('Alert broadcast to clients', { 
+          alertId: alert.id, 
+          clientCount: sentCount 
+        });
+      }
+    } catch (error) {
+      logger.error('Error broadcasting alert', { 
+        alertId: alert.id, 
+        error: error.message 
+      });
+    }
+  }
+  
+  /**
+   * Create a safe copy of an alert for JSON serialization
+   * @param {Object} alert - Original alert object
+   * @returns {Object} - Safe copy without circular references
+   */
+  createSafeAlertCopy(alert) {
+    try {
+      // Create a simplified version of the alert, omitting potentially problematic properties
+      const safeAlert = {
+        id: alert.id,
+        ruleId: alert.ruleId,
+        ruleName: alert.ruleName,
+        severity: alert.severity,
+        status: alert.status,
+        timestamp: alert.timestamp,
+        value: alert.value,
+        labels: { ...alert.labels },
+        annotations: { ...alert.annotations },
+        source: alert.source
+      };
+      
+      // Add safe metrics if they exist
+      if (alert.metrics) {
+        try {
+          // Test if metrics can be safely serialized
+          JSON.stringify(alert.metrics);
+          safeAlert.metrics = alert.metrics;
+        } catch (error) {
+          // If there's an error, omit metrics
+          safeAlert.metrics = { error: "Metrics contain non-serializable data" };
+        }
+      }
+      
+      return safeAlert;
+    } catch (error) {
+      logger.error('Error creating safe alert copy', { error: error.message });
+      // Return minimal alert data if copy fails
+      return { 
+        id: alert.id,
+        ruleName: alert.ruleName || "Unknown rule",
+        severity: alert.severity || "unknown",
+        status: alert.status || "unknown",
+        error: "Failed to create safe alert copy"
+      };
     }
   }
 

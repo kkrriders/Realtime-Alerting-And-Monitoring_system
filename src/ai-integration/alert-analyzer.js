@@ -3,7 +3,20 @@ import { initializeAI } from './ollama-client.js';
 import fs from 'fs/promises';
 import path from 'path';
 
-// Configure logger
+// Ensure logs directory exists
+async function ensureLogDirectory() {
+  const logDir = path.join(process.cwd(), 'logs');
+  try {
+    await fs.mkdir(logDir, { recursive: true });
+  } catch (error) {
+    // Ignore errors if directory already exists
+    if (error.code !== 'EEXIST') {
+      console.error('Error creating logs directory:', error.message);
+    }
+  }
+}
+
+// Configure logger with default configuration first
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
@@ -12,10 +25,20 @@ const logger = winston.createLogger({
   ),
   defaultMeta: { service: 'alert-analyzer' },
   transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: 'logs/ai-alerts.log' })
+    new winston.transports.Console()
   ]
 });
+
+// Ensure logs directory exists and update logger
+(async () => {
+  try {
+    await ensureLogDirectory();
+    // Add file transport after ensuring directory exists
+    logger.add(new winston.transports.File({ filename: 'logs/ai-alerts.log' }));
+  } catch (error) {
+    console.error('Error initializing logger:', error);
+  }
+})();
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -105,11 +128,21 @@ class AlertAnalyzer {
     try {
       logger.info('Initializing Alert Analyzer...');
       
+      // Ensure config directories exist
+      await this.ensureConfigDirectories();
+      
       // Load configuration
       await this.loadConfiguration();
       
       // Initialize AI client
       this.aiClient = await initializeAI();
+      
+      // Verify required methods
+      if (this.aiClient) {
+        this.verifyAiClientMethods();
+      } else {
+        logger.warn('AI client initialization failed or returned null');
+      }
       
       this.initialized = true;
       logger.info('Alert Analyzer initialized successfully');
@@ -122,11 +155,73 @@ class AlertAnalyzer {
   }
 
   /**
+   * Verify that all required methods are available in the AI client
+   */
+  verifyAiClientMethods() {
+    // List of required methods
+    const requiredMethods = [
+      'analyzeAlertPattern',
+      'getRecommendations',
+      'correlateMetrics',
+      'explainAnomaly',
+      'predictResourceUsage'
+    ];
+    
+    // Check each method
+    const missingMethods = requiredMethods.filter(
+      method => typeof this.aiClient[method] !== 'function'
+    );
+    
+    if (missingMethods.length > 0) {
+      const warning = `AI client is missing required methods: ${missingMethods.join(', ')}`;
+      logger.warn(warning);
+      
+      // Create stub methods for missing functions to prevent runtime errors
+      for (const method of missingMethods) {
+        this.aiClient[method] = async (...args) => {
+          logger.warn(`Called missing AI method: ${method}`, { arguments: args });
+          return { error: `Method ${method} is not implemented` };
+        };
+      }
+    }
+  }
+
+  /**
+   * Ensure config directories exist
+   */
+  async ensureConfigDirectories() {
+    try {
+      const configDirs = [
+        path.join(process.cwd(), 'config'),
+        path.join(process.cwd(), 'config', 'ai-alerts')
+      ];
+      
+      for (const dir of configDirs) {
+        await fs.mkdir(dir, { recursive: true });
+      }
+      
+      logger.debug('Config directories ensured');
+    } catch (error) {
+      logger.warn('Error ensuring config directories', { error: error.message });
+      // Continue execution even if directories can't be created
+    }
+  }
+
+  /**
    * Load configuration from file
    */
   async loadConfiguration() {
     try {
       const configPath = path.join(process.cwd(), 'config', 'ai-alerts', 'config.json');
+      
+      // Check if file exists, create default if not
+      try {
+        await fs.access(configPath);
+      } catch (error) {
+        // File doesn't exist, create default
+        await this.createDefaultConfig(configPath);
+      }
+      
       const configData = await fs.readFile(configPath, 'utf-8');
       const fileConfig = JSON.parse(configData);
       
@@ -155,6 +250,20 @@ class AlertAnalyzer {
   }
 
   /**
+   * Create default AI alerts configuration
+   * @param {string} filePath - Path to write the config file
+   */
+  async createDefaultConfig(filePath) {
+    try {
+      await fs.writeFile(filePath, JSON.stringify(DEFAULT_CONFIG, null, 2), 'utf-8');
+      logger.info('Created default AI alerts configuration');
+    } catch (error) {
+      logger.error('Failed to create default AI alerts configuration', { error: error.message });
+      // Continue execution even if file can't be created
+    }
+  }
+
+  /**
    * Analyze alert patterns and generate insights
    * @param {Array} alertHistory - Historical alert data
    * @returns {Promise<Object>} - Analysis results
@@ -162,12 +271,12 @@ class AlertAnalyzer {
   async analyzeAlertPatterns(alertHistory) {
     if (!this.initialized || !this.aiClient) {
       logger.warn('Alert Analyzer not initialized');
-      return null;
+      return { patterns: [], insights: [] };
     }
 
     if (!this.config.analysis.patternAnalysis.enabled) {
       logger.debug('Pattern analysis is disabled');
-      return null;
+      return { patterns: [], insights: [] };
     }
 
     if (alertHistory.length < this.config.analysis.patternAnalysis.minAlertsForAnalysis) {
@@ -175,7 +284,7 @@ class AlertAnalyzer {
         current: alertHistory.length,
         required: this.config.analysis.patternAnalysis.minAlertsForAnalysis
       });
-      return null;
+      return { patterns: [], insights: [] };
     }
 
     try {
@@ -185,17 +294,29 @@ class AlertAnalyzer {
 
       const result = await this.aiClient.analyzeAlertPattern(alertHistory);
       
-      if (result && result.patterns) {
-        logger.info('Alert pattern analysis completed', {
-          patternCount: result.patterns.length,
-          insightCount: result.insights?.length || 0
-        });
+      // Handle null or undefined result
+      if (!result) {
+        logger.warn('No result returned from AI client for pattern analysis');
+        return { patterns: [], insights: [] };
       }
+      
+      // Ensure patterns and insights exist
+      if (!result.patterns) result.patterns = [];
+      if (!result.insights) result.insights = [];
+      
+      logger.info('Alert pattern analysis completed', {
+        patternCount: result.patterns.length,
+        insightCount: result.insights.length
+      });
 
       return result;
     } catch (error) {
       logger.error('Error analyzing alert patterns', { error: error.message });
-      return null;
+      return { 
+        patterns: [], 
+        insights: [], 
+        error: error.message 
+      };
     }
   }
 
@@ -209,12 +330,12 @@ class AlertAnalyzer {
   async generateRecommendations(alert, recentAlerts, metrics) {
     if (!this.initialized || !this.aiClient) {
       logger.warn('Alert Analyzer not initialized');
-      return null;
+      return { recommendations: [] };
     }
 
     if (!this.config.analysis.recommendations.enabled) {
       logger.debug('Recommendations are disabled');
-      return null;
+      return { recommendations: [] };
     }
 
     // Check severity threshold
@@ -227,7 +348,10 @@ class AlertAnalyzer {
         alertSeverity: alert.severity,
         minSeverity: this.config.analysis.recommendations.minSeverity
       });
-      return null;
+      return { 
+        recommendations: [],
+        message: `Alert severity ${alert.severity} below minimum threshold ${this.config.analysis.recommendations.minSeverity}`
+      };
     }
 
     try {
@@ -241,7 +365,16 @@ class AlertAnalyzer {
         metrics
       });
 
-      if (result && result.recommendations) {
+      // Handle null or undefined result
+      if (!result) {
+        logger.warn('No result returned from AI client for recommendations', { alertId: alert.id });
+        return { recommendations: [] };
+      }
+      
+      // Ensure recommendations exist
+      if (!result.recommendations) {
+        result.recommendations = [];
+      } else {
         // Limit number of recommendations
         result.recommendations = result.recommendations
           .slice(0, this.config.analysis.recommendations.maxRecommendations);
@@ -254,7 +387,10 @@ class AlertAnalyzer {
       return result;
     } catch (error) {
       logger.error('Error generating recommendations', { error: error.message });
-      return null;
+      return { 
+        recommendations: [], 
+        error: error.message 
+      };
     }
   }
 
@@ -268,12 +404,12 @@ class AlertAnalyzer {
   async analyzeCorrelations(alert, metrics, recentAlerts) {
     if (!this.initialized || !this.aiClient) {
       logger.warn('Alert Analyzer not initialized');
-      return null;
+      return { correlations: [] };
     }
 
     if (!this.config.analysis.correlations.enabled) {
       logger.debug('Correlation analysis is disabled');
-      return null;
+      return { correlations: [] };
     }
 
     try {
@@ -287,7 +423,16 @@ class AlertAnalyzer {
         recentAlerts: recentAlerts.slice(-Math.floor(this.config.analysis.correlations.lookbackPeriod / 3600000))
       });
 
-      if (result && result.correlations) {
+      // Handle null or undefined result
+      if (!result) {
+        logger.warn('No result returned from AI client for correlations', { alertId: alert.id });
+        return { correlations: [] };
+      }
+      
+      // Ensure correlations exist
+      if (!result.correlations) {
+        result.correlations = [];
+      } else {
         // Filter by significance and limit number
         result.correlations = result.correlations
           .filter(c => {
@@ -306,57 +451,80 @@ class AlertAnalyzer {
       return result;
     } catch (error) {
       logger.error('Error analyzing correlations', { error: error.message });
-      return null;
+      return { 
+        correlations: [], 
+        error: error.message 
+      };
     }
   }
 
   /**
    * Get detailed explanation for an anomaly
-   * @param {Object} anomaly - Anomaly data
+   * @param {Object} anomaly - Anomaly data or metrics
    * @param {Object} contextData - Additional context data
    * @returns {Promise<Object>} - Detailed explanation
    */
   async explainAnomaly(anomaly, contextData = {}) {
     if (!this.initialized || !this.aiClient) {
       logger.warn('Alert Analyzer not initialized');
-      return null;
+      return { anomalies: [], explanation: "Alert analyzer not initialized" };
     }
 
     if (!this.config.analysis.anomalyDetection.enabled) {
       logger.debug('Anomaly detection is disabled');
-      return null;
+      return { anomalies: [], explanation: "Anomaly detection is disabled" };
     }
 
     // Check if resource type is enabled
     const resourceType = contextData.resourceType || 'general';
     if (!this.config.analysis.anomalyDetection.resourceTypes.includes(resourceType)) {
       logger.debug('Resource type not enabled for anomaly detection', { resourceType });
-      return null;
+      return { anomalies: [], explanation: `Resource type ${resourceType} not enabled for anomaly detection` };
     }
 
     try {
+      // Log with anomaly ID if available, otherwise log resource type
+      const anomalyId = anomaly.id || contextData.alertId || 'unknown';
       logger.info('Getting explanation for anomaly', { 
-        anomalyId: anomaly.id,
+        anomalyId,
         resourceType
       });
 
       const result = await this.aiClient.explainAnomaly(anomaly, contextData);
 
-      if (result && result.anomalies) {
+      // If result is null or undefined, return empty arrays
+      if (!result) {
+        logger.warn('No result returned from AI client for anomaly', { resourceType });
+        return { anomalies: [], explanation: "No anomalies detected" };
+      }
+
+      // Handle case where anomalies might not be present
+      if (result.anomalies) {
         // Filter by confidence and limit number
         result.anomalies = result.anomalies
-          .filter(a => a.confidence >= this.config.analysis.anomalyDetection.minConfidence)
+          .filter(a => (a.confidence || 0) >= this.config.analysis.anomalyDetection.minConfidence)
           .slice(0, this.config.analysis.anomalyDetection.maxAnomaliesPerResource);
 
         logger.info('Anomaly explanation generated', {
           anomalyCount: result.anomalies.length
         });
+      } else {
+        result.anomalies = [];
+      }
+
+      // Ensure explanation property exists
+      if (!result.explanation) {
+        result.explanation = result.description || "No detailed explanation available";
       }
 
       return result;
     } catch (error) {
       logger.error('Error explaining anomaly', { error: error.message });
-      return null;
+      return { 
+        anomalies: [], 
+        explanation: `Error in anomaly detection: ${error.message}`, 
+        error: error.message 
+      };
     }
   }
 
@@ -369,12 +537,12 @@ class AlertAnalyzer {
   async predictResourceUsage(historicalData, hours = 24) {
     if (!this.initialized || !this.aiClient) {
       logger.warn('Alert Analyzer not initialized');
-      return null;
+      return { predictions: [] };
     }
 
     if (!this.config.analysis.predictions.enabled) {
       logger.debug('Resource usage predictions are disabled');
-      return null;
+      return { predictions: [] };
     }
 
     try {
@@ -387,10 +555,19 @@ class AlertAnalyzer {
         hours || this.config.analysis.predictions.forecastHours
       );
 
-      if (result && result.predictions) {
+      // Handle null or undefined result
+      if (!result) {
+        logger.warn('No result returned from AI client for resource usage prediction');
+        return { predictions: [] };
+      }
+      
+      // Ensure predictions exist
+      if (!result.predictions) {
+        result.predictions = [];
+      } else {
         // Filter by confidence
         result.predictions = result.predictions.filter(p => 
-          p.confidence >= this.config.analysis.predictions.minConfidence
+          (p.confidence || 0) >= this.config.analysis.predictions.minConfidence
         );
 
         logger.info('Resource usage prediction completed', {
@@ -401,7 +578,10 @@ class AlertAnalyzer {
       return result;
     } catch (error) {
       logger.error('Error predicting resource usage', { error: error.message });
-      return null;
+      return { 
+        predictions: [], 
+        error: error.message 
+      };
     }
   }
 }
