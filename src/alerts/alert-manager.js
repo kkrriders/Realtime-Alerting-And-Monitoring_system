@@ -4,6 +4,7 @@ import winston from 'winston';
 import { EventEmitter } from 'events';
 import { WebSocketServer, WebSocket } from 'ws';
 import alertAnalyzer from '../ai-integration/alert-analyzer.js';
+import { prettyPrintAlert, createPrettyConsoleTransport } from '../utils/pretty-logger.js';
 
 // Ensure logs directory exists
 async function ensureLogDirectory() {
@@ -27,7 +28,10 @@ const logger = winston.createLogger({
   ),
   defaultMeta: { service: 'alert-manager' },
   transports: [
-    new winston.transports.Console()
+    // Use pretty console transport for development, regular console for production
+    process.env.NODE_ENV !== 'production' 
+      ? createPrettyConsoleTransport(winston)
+      : new winston.transports.Console()
   ]
 });
 
@@ -373,6 +377,9 @@ class AlertManager extends EventEmitter {
     
     logger.debug('Processing metrics', { source, metricsCount: Object.keys(metrics).length });
     
+    // Store metrics for later use
+    this.lastProcessedMetrics = metrics;
+    
     // Filter rules for the current source
     const applicableRules = this.alertRules.filter(rule => 
       rule.enabled && (rule.source === source || rule.source === 'all')
@@ -397,6 +404,9 @@ class AlertManager extends EventEmitter {
         });
       }
     }
+    
+    // Broadcast metrics to WebSocket clients
+    this.broadcastMetrics(metrics);
   }
 
   /**
@@ -1097,11 +1107,19 @@ class AlertManager extends EventEmitter {
    * @param {Object} alert - Alert to notify about
    */
   sendConsoleNotification(channel, alert) {
-    const status = alert.status === 'firing' ? '🔴 FIRING' : '✅ RESOLVED';
-    const severity = alert.severity.toUpperCase();
-    const message = alert.annotations?.summary || alert.ruleName;
+    // Transform alert to match the format expected by prettyPrintAlert
+    const formattedAlert = {
+      id: alert.id,
+      name: alert.ruleName,
+      severity: alert.severity,
+      status: alert.status === 'firing' ? 'active' : 'resolved',
+      timestamp: alert.timestamp || new Date().toISOString(),
+      service: alert.labels?.service || alert.labels?.app || 'monitoring',
+      message: alert.annotations?.summary || `${alert.ruleName} alert`,
+      description: alert.annotations?.description || ''
+    };
     
-    console.log(`[${status}][${severity}] ${message}`);
+    prettyPrintAlert(formattedAlert);
     logger.info('Console notification sent', { alertId: alert.id });
   }
 
@@ -1293,6 +1311,130 @@ class AlertManager extends EventEmitter {
         alertId: alert.id, 
         error: error.message 
       });
+    }
+  }
+
+  /**
+   * Broadcast an AI insight to all connected WebSocket clients
+   * @param {Object} insight - AI insight to broadcast
+   */
+  broadcastInsight(insight) {
+    if (!this.wsServer || this.wsClients.size === 0) {
+      return;
+    }
+    
+    try {
+      // Create a safe copy of the insight to avoid circular references
+      const safeInsight = {
+        id: insight.id,
+        type: insight.type,
+        title: insight.title,
+        description: insight.description,
+        severity: insight.severity,
+        confidence: insight.confidence,
+        timestamp: insight.timestamp,
+        relatedMetrics: insight.relatedMetrics || [],
+        relatedServices: insight.relatedServices || [],
+        suggestedActions: insight.suggestedActions || [],
+      };
+      
+      const message = JSON.stringify({
+        type: 'insight',
+        insight: safeInsight
+      });
+      
+      let sentCount = 0;
+      for (const client of this.wsClients) {
+        if (client.readyState === WebSocket.OPEN) {
+          try {
+            client.send(message);
+            sentCount++;
+          } catch (error) {
+            logger.error('Error sending insight to WebSocket client', { error: error.message });
+            // Remove problematic client
+            client.terminate();
+            this.wsClients.delete(client);
+          }
+        }
+      }
+      
+      if (sentCount > 0) {
+        logger.debug('Insight broadcast to clients', { 
+          insightId: insight.id, 
+          type: insight.type,
+          clientCount: sentCount 
+        });
+      }
+    } catch (error) {
+      logger.error('Error broadcasting insight', { 
+        insightId: insight.id, 
+        error: error.message 
+      });
+    }
+  }
+
+  /**
+   * Broadcast metrics to all connected WebSocket clients
+   * @param {Object} metrics - Metrics data to broadcast
+   */
+  broadcastMetrics(metrics) {
+    if (!this.wsServer || this.wsClients.size === 0) {
+      return;
+    }
+    
+    try {
+      // Create a metrics object to broadcast
+      const formattedMetrics = [];
+      
+      // Format some sample metrics from the incoming data
+      Object.entries(metrics).forEach(([key, value], index) => {
+        if (typeof value === 'number') {
+          formattedMetrics.push({
+            id: `metric-${index}`,
+            name: key,
+            value: value,
+            timestamp: Date.now(),
+            source: 'prometheus',
+            unit: key.includes('cpu') ? 'percent' : 
+                  key.includes('memory') ? 'percent' : 
+                  key.includes('disk') ? 'percent' : 'count'
+          });
+        }
+      });
+      
+      if (formattedMetrics.length === 0) {
+        return;
+      }
+      
+      const message = JSON.stringify({
+        type: 'metrics',
+        metrics: formattedMetrics
+      });
+      
+      let sentCount = 0;
+      for (const client of this.wsClients) {
+        // Use the correct WebSocket.OPEN constant
+        if (client.readyState === WebSocket.OPEN) {
+          try {
+            client.send(message);
+            sentCount++;
+          } catch (error) {
+            logger.error('Error sending metrics to WebSocket client', { error: error.message });
+            // Remove problematic client
+            client.terminate();
+            this.wsClients.delete(client);
+          }
+        }
+      }
+      
+      if (sentCount > 0) {
+        logger.debug('Metrics broadcast to clients', { 
+          metricsCount: formattedMetrics.length,
+          clientCount: sentCount 
+        });
+      }
+    } catch (error) {
+      logger.error('Error broadcasting metrics', { error: error.message });
     }
   }
   

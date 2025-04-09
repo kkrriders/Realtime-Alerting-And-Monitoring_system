@@ -14,6 +14,7 @@ This system provides real-time monitoring, alerting, and AI-powered analytics fo
 - **Intelligent Alerting**: Rule-based and AI-driven alerting with customizable notification channels
 - **AI Analytics**: Anomaly detection, trend analysis, and resource optimization using Ollama AI models
 - **Real-time Visualization**: Custom dashboards and Grafana integration for comprehensive data visualization
+- **Color-enhanced Console Output**: Visually distinct alerts, metrics, and logs with color coding by severity and type
 - **Extensible Architecture**: Modular design for easy integration with additional data sources and AI models
 
 ## Technology Stack
@@ -59,6 +60,11 @@ This system provides real-time monitoring, alerting, and AI-powered analytics fo
    - Grafana Dashboards: http://localhost:3001 (default credentials: admin/admin)
    - Prometheus UI: http://localhost:9090
 
+5. Demo the pretty logger functionality:
+   ```bash
+   node scripts/demo-pretty-logger.js
+   ```
+
 ### Local Development
 
 1. Install dependencies:
@@ -82,6 +88,11 @@ This system provides real-time monitoring, alerting, and AI-powered analytics fo
 4. Start the application in development mode:
    ```bash
    npm run dev
+   ```
+
+5. Demo the pretty logger functionality:
+   ```bash
+   node scripts/demo-pretty-logger.js
    ```
 
 ## Configuration
@@ -153,6 +164,43 @@ Preconfigured dashboards are available in `config/grafana/dashboards/`:
 - Application metrics
 - AI insights
 
+### Pretty Logger
+
+The system includes a pretty console logger that enhances terminal output with color coding for improved readability:
+
+- **Color-coded Severity Levels**: Critical (red background), High (red), Medium (yellow), Low (blue), Info (green)
+- **Distinct Visual Formats**: Different formats for alerts, metrics, AI insights, and general logs
+- **Winston Integration**: Enhanced winston logger transport with color formatting
+- **Demo Script**: Run `node scripts/demo-pretty-logger.js` to see examples of all output types
+
+Example usage in your code:
+
+```javascript
+// Import the pretty logger utilities
+import { prettyPrintAlert, prettyPrintMetric } from '../utils/pretty-logger.js';
+
+// Print a formatted alert
+prettyPrintAlert({
+  id: 'alert-123',
+  name: 'High CPU Usage',
+  severity: 'critical',
+  status: 'active',
+  timestamp: new Date().toISOString(),
+  service: 'web-server',
+  message: 'CPU usage above 90% threshold',
+  description: 'Server experiencing high load'
+});
+
+// Print a formatted metric
+prettyPrintMetric({
+  name: 'Memory Usage',
+  value: 75.5,
+  timestamp: new Date(),
+  unit: '%',
+  labels: { instance: 'server-01' }
+});
+```
+
 ## Architecture
 
 The system is composed of the following layers:
@@ -180,6 +228,7 @@ The system is composed of the following layers:
 - **Rule-based Alerts**: Traditional threshold-based alerting
 - **AI-driven Alerts**: Anomaly-based alerting
 - **Alert Manager**: Handles alert aggregation, deduplication, and routing
+- **Pretty Logger**: Enhanced visual logging for alerts, metrics, and insights
 
 ### Visualization Layer
 
@@ -276,88 +325,4 @@ The system uses Ollama to provide three types of AI-driven analytics:
 2. **Trend Analysis**: Analyzes historical data to identify patterns and forecast future trends
 3. **Recommendation Engine**: Suggests optimizations based on resource usage patterns
 
-AI models and configurations are stored in `config/ollama/`.
-
-## Deployment
-
-### Docker Deployment (Easiest)
-
-```bash
-npm run docker:up
-```
-
-This starts all components including:
-- The Node.js application
-- Prometheus for metrics
-- Grafana for dashboards
-- Ollama for AI capabilities
-
-### Cloud Deployment
-
-For production deployment on Azure:
-
-1. Create Azure resources:
-   - Azure Container Instances or AKS for containerized deployment
-   - Azure Database for persistent storage
-   - Azure Monitor for additional monitoring
-
-2. Configure CI/CD pipeline using GitHub Actions (`.github/workflows/ci.yml`)
-
-## API Documentation
-
-Full API documentation is available in `docs/api/README.md` or when running the system at `http://localhost:3000/api-docs`.
-
-Key endpoints:
-
-- `GET /api/alerts` - Get all active alerts
-- `GET /api/insights` - Get AI-generated insights
-- `GET /api/metrics/query` - Query metrics data
-
-## Troubleshooting
-
-### Common Issues
-
-#### Connection to Prometheus Failed
-
-- Check if Prometheus is running: `docker-compose ps`
-- Check if the Prometheus URL is correct in `.env`
-- Verify Prometheus configuration in `config/prometheus/`
-
-#### Azure Integration Issues
-
-- Verify Azure credentials in `.env`
-- Check network connectivity to Azure endpoints
-- Validate resource IDs in configuration
-
-#### Ollama AI Integration Issues
-
-- Check if Ollama is running: `docker-compose ps`
-- Verify the model is properly loaded: `curl http://localhost:11434/api/tags`
-- Check the Ollama configuration in `config/ollama/`
-
-## Data Migration
-
-Use the data migration utility for transferring data between systems:
-
-```bash
-# Export data from Prometheus
-node scripts/utils/data-migration.js export --source prometheus --query "up" --output data.json
-
-# Convert data formats
-node scripts/utils/data-migration.js convert --from prometheus --to csv --input data.json --output data.csv
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Azure Monitor for metrics and logs collection
-- Prometheus for metrics storage and querying
-- Grafana for visualization capabilities
-- Ollama team for the AI model serving platform 
+AI models and configurations are stored in `
