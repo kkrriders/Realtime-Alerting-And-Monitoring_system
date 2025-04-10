@@ -4,7 +4,7 @@
  */
 
 // Set this to true to use mock data, false to use real API endpoints
-export const USE_MOCK_DATA = false;
+export const USE_MOCK_DATA = true;
 
 // Base URL for API endpoints - replace with your actual backend URL when connecting to real API
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -19,7 +19,7 @@ export const API_ENDPOINTS = {
     ALERTS: '/api/dashboard-data?dataType=alerts',
     INSIGHTS: '/api/dashboard-data?dataType=insights',
     DASHBOARD_STATS: '/api/dashboard-data?dataType=dashboard-stats',
-    ALL: '/api/dashboard-data?dataType=all',
+    ALL: '/api/dashboard/all',
   },
   
   // Real API endpoints (connect to your backend)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { MetricData, AlertData, AIInsight, WSMessage } from '@/types/metrics';
 import websocketSimulator from '@/lib/api/websocket-simulator';
 import { USE_MOCK_DATA, getWebSocketConfig } from '@/lib/config';
@@ -19,12 +19,15 @@ export default function useRealTimeUpdates(initialData?: Partial<UpdatedData>) {
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<WSMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
   
   // Reference to WebSocket instance
   const wsRef = useRef<WebSocket | null>(null);
+  // Reference to reconnect timeout
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Connect to the WebSocket or simulator
-  useEffect(() => {
+  // Connect to WebSocket function
+  const connectToWebSocket = useCallback(() => {
     const config = getWebSocketConfig();
     
     if (!config.ENABLED) {
@@ -43,57 +46,156 @@ export default function useRealTimeUpdates(initialData?: Partial<UpdatedData>) {
       websocketSimulator.connect();
       setIsConnected(true);
       setError(null);
-      
-      return () => {
-        websocketSimulator.disconnect();
-        setIsConnected(false);
-      };
+      setReconnectAttempts(0);
+      return;
     } 
+    
     // Using real WebSocket connection
-    else {
-      try {
-        const ws = new WebSocket(config.URL);
-        wsRef.current = ws;
+    try {
+      console.log(`Connecting to WebSocket at ${config.URL}`);
+      const ws = new WebSocket(config.URL);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setIsConnected(true);
+        setError(null);
+        setReconnectAttempts(0);
+      };
+      
+      ws.onclose = (event) => {
+        console.log(`WebSocket closed: ${event.code} ${event.reason}`);
+        setIsConnected(false);
         
-        ws.onopen = () => {
-          setIsConnected(true);
-          setError(null);
-        };
-        
-        ws.onclose = () => {
-          setIsConnected(false);
-          setError('WebSocket connection closed');
-        };
-        
-        ws.onerror = (event) => {
-          setError('WebSocket connection error');
-          console.error('WebSocket error:', event);
-        };
-        
-        ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data) as WSMessage;
-            setLastUpdate(message);
-            handleMessage(message);
-          } catch (err) {
-            console.error('Error parsing WebSocket message:', err);
-          }
-        };
-        
-        return () => {
-          if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-            ws.close();
-          }
-          wsRef.current = null;
-          setIsConnected(false);
-        };
-      } catch (err) {
-        console.error('Error setting up WebSocket:', err);
-        setError('Failed to connect to WebSocket server');
-        return () => {};
-      }
+        // Don't attempt to reconnect if close was clean/intentional
+        if (event.wasClean) {
+          setError('WebSocket connection closed cleanly');
+        } else {
+          setError('WebSocket connection closed unexpectedly');
+          attemptReconnect();
+        }
+      };
+      
+      ws.onerror = (event) => {
+        console.error('WebSocket error:', event);
+        setError('WebSocket connection error');
+        // onclose will be called after onerror
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as WSMessage;
+          setLastUpdate(message);
+          handleMessage(message);
+        } catch (err) {
+          console.error('Error parsing WebSocket message:', err);
+        }
+      };
+    } catch (err) {
+      console.error('Error setting up WebSocket:', err);
+      setError('Failed to connect to WebSocket server');
+      attemptReconnect();
     }
   }, []);
+  
+  // Reconnection logic
+  const attemptReconnect = useCallback(() => {
+    // Clear any existing reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    // Implement exponential backoff
+    const maxReconnectAttempts = 5;
+    if (reconnectAttempts < maxReconnectAttempts) {
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+      console.log(`Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`);
+      
+      reconnectTimeoutRef.current = setTimeout(() => {
+        setReconnectAttempts(prev => prev + 1);
+        connectToWebSocket();
+      }, delay);
+    } else {
+      console.log('Max reconnect attempts reached, falling back to polling');
+      // Implement polling fallback here if needed
+      setError('Unable to establish WebSocket connection, falling back to polling');
+      
+      // Start polling for updates every 10 seconds
+      startPolling();
+    }
+  }, [reconnectAttempts, connectToWebSocket]);
+  
+  // Polling fallback
+  const [isPolling, setIsPolling] = useState(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const startPolling = useCallback(() => {
+    if (isPolling) return;
+    
+    setIsPolling(true);
+    console.log('Starting polling for updates');
+    
+    const pollInterval = 10000; // 10 seconds
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await fetch('/api/dashboard/all');
+        if (response.ok) {
+          const result = await response.json();
+          
+          // Update data similar to WebSocket messages
+          if (result.metrics) {
+            result.metrics.forEach(updateMetric);
+          }
+          if (result.alerts) {
+            result.alerts.forEach(updateAlert);
+          }
+          if (result.insights) {
+            result.insights.forEach(updateInsight);
+          }
+        }
+      } catch (err) {
+        console.error('Error polling for updates:', err);
+      }
+    }, pollInterval);
+    
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      setIsPolling(false);
+    };
+  }, [isPolling]);
+  
+  // Connect to the WebSocket or simulator
+  useEffect(() => {
+    connectToWebSocket();
+    
+    // Cleanup on unmount
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      
+      if (USE_MOCK_DATA) {
+        websocketSimulator.disconnect();
+      }
+      
+      setIsConnected(false);
+    };
+  }, [connectToWebSocket]);
   
   // Subscribe to mock WebSocket simulator updates
   useEffect(() => {
