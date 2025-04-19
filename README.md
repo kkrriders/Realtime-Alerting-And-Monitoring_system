@@ -241,7 +241,9 @@ The system is composed of the following layers:
 ```
 ├── config/                 # Configuration files
 │   ├── azure/              # Azure Monitor configuration
+│   │   └── azure-monitor-config.json # Azure Monitor configuration
 │   ├── grafana/            # Grafana dashboards and provisioning
+│   │   └── dashboards/       # Grafana dashboards
 │   ├── ollama/             # Ollama AI model configuration
 │   ├── prometheus/         # Prometheus configuration
 │   └── alert-rules.json    # Alert rules configuration
@@ -316,6 +318,16 @@ npm run format
 2. Export the dashboard JSON
 3. Add it to `config/grafana/dashboards/`
 4. Update provisioning configuration as needed
+
+## Contributors
+
+- **You**
+  - **Frontend**: Real-time visualization dashboards, UI components, and responsive design
+  - **Backend**: Data processing layer, API endpoints, and alerting system integration
+
+- **Anshuman**
+  - **Frontend**: Grafana dashboard customizations, chart components, and user interactions
+  - **Backend**: Data collectors, AI integration, and system architecture
 
 ## AI Analytics
 
