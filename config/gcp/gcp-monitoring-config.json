@@ -1,0 +1,182 @@
+{
+  "projectId": "${GCP_PROJECT_ID}",
+  "resources": [
+    {
+      "type": "gce_instance",
+      "name": "Virtual Machine Instances",
+      "description": "Google Compute Engine VM instances",
+      "metrics": [
+        {
+          "name": "CPU Utilization",
+          "type": "compute.googleapis.com/instance/cpu/utilization",
+          "description": "CPU utilization across all cores",
+          "unit": "%"
+        },
+        {
+          "name": "Memory Usage",
+          "type": "compute.googleapis.com/instance/memory/percent_used",
+          "description": "Memory usage percentage",
+          "unit": "%"
+        },
+        {
+          "name": "Disk Operations",
+          "type": "compute.googleapis.com/instance/disk/operation_count",
+          "description": "The count of disk operations",
+          "unit": "1/s"
+        },
+        {
+          "name": "Network Traffic",
+          "type": "compute.googleapis.com/instance/network/received_bytes_count",
+          "description": "The count of bytes received from the network",
+          "unit": "By/s"
+        }
+      ]
+    },
+    {
+      "type": "gae_app",
+      "name": "App Engine",
+      "description": "Google App Engine applications",
+      "metrics": [
+        {
+          "name": "Response Latency",
+          "type": "appengine.googleapis.com/http/server/response_latencies",
+          "description": "Distribution of application response latencies",
+          "unit": "ms"
+        },
+        {
+          "name": "Instance Count",
+          "type": "appengine.googleapis.com/system/instance_count",
+          "description": "The count of App Engine instances",
+          "unit": "1"
+        },
+        {
+          "name": "Memory Usage",
+          "type": "appengine.googleapis.com/system/memory/usage",
+          "description": "Amount of memory used by the app",
+          "unit": "By"
+        },
+        {
+          "name": "Request Count",
+          "type": "appengine.googleapis.com/http/server/request_count",
+          "description": "The count of HTTP requests",
+          "unit": "1/min"
+        }
+      ]
+    },
+    {
+      "type": "cloudsql_database",
+      "name": "Cloud SQL",
+      "description": "Google Cloud SQL databases",
+      "metrics": [
+        {
+          "name": "CPU Utilization",
+          "type": "cloudsql.googleapis.com/database/cpu/utilization",
+          "description": "CPU utilization",
+          "unit": "%"
+        },
+        {
+          "name": "Memory Utilization",
+          "type": "cloudsql.googleapis.com/database/memory/utilization",
+          "description": "Memory utilization",
+          "unit": "%"
+        },
+        {
+          "name": "Disk Utilization",
+          "type": "cloudsql.googleapis.com/database/disk/utilization",
+          "description": "Disk utilization",
+          "unit": "%"
+        },
+        {
+          "name": "Connections",
+          "type": "cloudsql.googleapis.com/database/network/connections",
+          "description": "Number of connections",
+          "unit": "1"
+        }
+      ]
+    }
+  ],
+  "default_queries": [
+    {
+      "id": "vm-cpu-usage",
+      "name": "VM CPU Usage",
+      "description": "CPU usage for all VMs",
+      "type": "metric",
+      "metricType": "compute.googleapis.com/instance/cpu/utilization",
+      "filter": "resource.type=\"gce_instance\"",
+      "options": {
+        "aggregation": {
+          "alignmentPeriod": { "seconds": 60 },
+          "perSeriesAligner": "ALIGN_MEAN",
+          "crossSeriesReducer": "REDUCE_MEAN",
+          "groupByFields": ["resource.labels.instance_id"]
+        }
+      }
+    },
+    {
+      "id": "app-engine-latency",
+      "name": "App Engine Latency",
+      "description": "Response latency for App Engine services",
+      "type": "metric",
+      "metricType": "appengine.googleapis.com/http/server/response_latencies",
+      "filter": "resource.type=\"gae_app\" AND resource.labels.module_id=\"${GCP_APP_ENGINE_SERVICE}\"",
+      "options": {
+        "aggregation": {
+          "alignmentPeriod": { "seconds": 60 },
+          "perSeriesAligner": "ALIGN_PERCENTILE_99"
+        }
+      }
+    },
+    {
+      "id": "cloud-sql-cpu",
+      "name": "Cloud SQL CPU Usage",
+      "description": "CPU usage for Cloud SQL instances",
+      "type": "metric",
+      "metricType": "cloudsql.googleapis.com/database/cpu/utilization",
+      "filter": "resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"${GCP_SQL_INSTANCE_ID}\"",
+      "options": {
+        "aggregation": {
+          "alignmentPeriod": { "seconds": 60 },
+          "perSeriesAligner": "ALIGN_MEAN"
+        }
+      }
+    }
+  ],
+  "scheduled_queries": [
+    {
+      "id": "vm-cpu-hourly",
+      "name": "VM CPU Hourly Check",
+      "description": "Hourly check on VM CPU usage",
+      "schedule": "0 * * * *",
+      "metricType": "compute.googleapis.com/instance/cpu/utilization",
+      "filter": "resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${GCP_INSTANCE_ID}\"",
+      "options": {
+        "timeInterval": {
+          "startTime": "-1h",
+          "endTime": "now"
+        },
+        "aggregation": {
+          "alignmentPeriod": { "seconds": 300 },
+          "perSeriesAligner": "ALIGN_MAX"
+        }
+      }
+    },
+    {
+      "id": "app-engine-daily",
+      "name": "App Engine Daily Performance",
+      "description": "Daily App Engine performance metrics",
+      "schedule": "0 0 * * *",
+      "type": "timeSeries",
+      "filter": "metric.type=\"appengine.googleapis.com/http/server/response_latencies\" AND resource.type=\"gae_app\"",
+      "interval": {
+        "startTime": "-24h",
+        "endTime": "now"
+      },
+      "aggregation": {
+        "alignmentPeriod": { "seconds": 3600 },
+        "perSeriesAligner": "ALIGN_PERCENTILE_95",
+        "crossSeriesReducer": "REDUCE_MEAN",
+        "groupByFields": ["resource.labels.module_id", "resource.labels.version_id"]
+      }
+    }
+  ]
+} 

@@ -8,15 +8,14 @@ datasources:
     isDefault: true
     editable: false
     
-  - name: Azure Monitor
-    type: grafana-azure-monitor-datasource
+  - name: Google Cloud Monitoring
+    type: grafana-googlecloud-datasource
     access: proxy
     jsonData:
-      azureAuthType: clientsecret
-      cloudName: azuremonitor
-      subscriptionId: $AZURE_SUBSCRIPTION_ID
-      tenantId: $AZURE_TENANT_ID
-      clientId: $AZURE_CLIENT_ID
+      authenticationType: jwt
+      clientEmail: $GCP_CLIENT_EMAIL
+      defaultProject: $GCP_PROJECT_ID
+      tokenUri: https://oauth2.googleapis.com/token
     secureJsonData:
-      clientSecret: $AZURE_CLIENT_SECRET
+      privateKey: $GCP_PRIVATE_KEY
     editable: false 

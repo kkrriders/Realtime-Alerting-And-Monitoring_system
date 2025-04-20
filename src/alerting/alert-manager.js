@@ -32,7 +32,7 @@ export async function setupAlertSystem(options) {
   logger.info('Setting up alert system...');
   
   try {
-    const { prometheusClient, azureMonitorClient, aiClient, io } = options;
+    const { prometheusClient, gcpMonitoringClient, aiClient, io } = options;
     
     // Load alert rules
     await loadAlertRules();
@@ -41,7 +41,7 @@ export async function setupAlertSystem(options) {
     await loadNotificationChannels();
     
     // Schedule alert evaluation
-    scheduleAlertEvaluation(prometheusClient, azureMonitorClient, aiClient, io);
+    scheduleAlertEvaluation(prometheusClient, gcpMonitoringClient, aiClient, io);
     
     logger.info('Alert system setup completed', { 
       rulesLoaded: alertRules.length,
@@ -168,7 +168,7 @@ async function loadNotificationChannels() {
 /**
  * Schedule alert evaluation
  */
-function scheduleAlertEvaluation(prometheusClient, azureMonitorClient, aiClient, io) {
+function scheduleAlertEvaluation(prometheusClient, gcpMonitoringClient, aiClient, io) {
   // Schedule standard alert evaluation (every minute)
   nodeCron.schedule('* * * * *', async () => {
     try {
@@ -180,8 +180,8 @@ function scheduleAlertEvaluation(prometheusClient, azureMonitorClient, aiClient,
         
         if (rule.source === 'prometheus') {
           await evaluatePrometheusRule(rule, prometheusClient, io);
-        } else if (rule.source === 'azure') {
-          await evaluateAzureRule(rule, azureMonitorClient, io);
+        } else if (rule.source === 'gcp') {
+          await evaluateGcpRule(rule, gcpMonitoringClient, io);
         }
       }
     } catch (error) {
@@ -277,55 +277,51 @@ async function evaluatePrometheusRule(rule, prometheusClient, io) {
 }
 
 /**
- * Evaluate an Azure alert rule
+ * Evaluate a Google Cloud Monitoring alert rule
+ * @param {Object} rule - The alert rule
+ * @param {Object} gcpMonitoringClient - GCP Monitoring client
+ * @param {Object} io - Socket.IO instance
  */
-async function evaluateAzureRule(rule, azureMonitorClient, io) {
+async function evaluateGcpRule(rule, gcpMonitoringClient, io) {
+  if (!gcpMonitoringClient) {
+    logger.warn(`Skipping GCP rule ${rule.id} - GCP client not available`);
+    return;
+  }
+  
   try {
-    // In a real system, this would query Azure Monitor
-    // For this example, we're using simulated data
-    const result = simulateAzureQuery(rule);
+    // In a production system, this would actually query GCP
+    // For this example, we'll simulate results
+    const result = simulateGcpQuery(rule);
     
-    // Check if alert should fire
-    if (result.firing) {
-      const alertId = `${rule.id}_${Date.now()}`;
+    if (result && result.triggered) {
+      // Create an alert
+      const alert = {
+        id: `gcp-${rule.id}-${Date.now()}`,
+        ruleName: rule.name,
+        severity: rule.severity,
+        status: 'firing',
+        message: result.message || `GCP alert triggered for ${rule.name}`,
+        startsAt: new Date().toISOString(),
+        source: 'gcp',
+        labels: rule.labels || {},
+        annotations: rule.annotations || {},
+        query: rule.query,
+        value: result.value,
+        gcpResource: rule.resourceId
+      };
       
-      // Create alert if not already active
-      if (!activeAlerts.has(rule.id)) {
-        const alert = {
-          id: alertId,
-          ruleId: rule.id,
-          name: rule.name,
-          description: rule.description,
-          severity: rule.severity,
-          status: 'firing',
-          source: 'azure',
-          value: result.value,
-          labels: { ...rule.labels },
-          annotations: {
-            summary: `${rule.name} (${result.value})`,
-            description: rule.description,
-            azureResource: rule.resourceId
-          },
-          startsAt: new Date(),
-          endsAt: null
-        };
-        
-        createAlert(alert, null, io);
-      }
-    } else {
-      // Resolve alert if it was active
-      if (activeAlerts.has(rule.id)) {
-        const alert = activeAlerts.get(rule.id);
-        
-        resolveAlert(alert.id, {
-          resolvedAt: new Date(),
-          autoResolved: true,
-          comment: 'Condition no longer met'
-        });
-      }
+      // Add to active alerts
+      activeAlerts.set(alert.id, alert);
+      alertHistory.push(alert);
+      
+      // Notify via websocket
+      io.to('alerts').emit('alert', alert);
+      
+      // Log the alert
+      prettyPrintAlert(alert);
     }
   } catch (error) {
-    logger.error(`Error evaluating Azure rule ${rule.id}`, { error: error.message });
+    logger.error(`Error evaluating GCP rule ${rule.id}`, { error: error.message });
   }
 }
 
@@ -714,17 +710,29 @@ function simulatePrometheusQuery(query) {
 }
 
 /**
- * Simulate an Azure Monitor query result
- * In a real system, this would be replaced with actual Azure Monitor query
+ * Simulate a Google Cloud Monitoring query result
+ * In a production system, this would be replaced with actual GCP query
+ * @param {Object} rule - The alert rule
+ * @returns {Object} Simulated query result
  */
-function simulateAzureQuery(rule) {
-  // This is just a simulation to demonstrate the concept
-  // In a real system, this would query Azure Monitor
+function simulateGcpQuery(rule) {
+  // In a real system, this would query GCP
+  // For this demo, we randomly generate some alerts
   
-  // Randomly fire 10% of the time
+  // Simulate some alerts
+  const random = Math.random();
+  
+  if (random > 0.8) {
+    return {
+      triggered: true,
+      value: rule.id.includes('cpu') ? 90.5 : rule.id.includes('memory') ? 85.2 : 100,
+      message: rule.annotations?.description || `${rule.name} threshold exceeded`,
+      timestamp: new Date().toISOString()
+    };
+  }
+  
   return {
-    firing: Math.random() < 0.1,
-    value: Math.floor(Math.random() * 100)
+    triggered: false
   };
 }
 

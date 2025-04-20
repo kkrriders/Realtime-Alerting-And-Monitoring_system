@@ -1,6 +1,6 @@
 # Real-Time Alerting and Monitoring System
 
-A comprehensive monitoring and alerting system built with Node.js that integrates Azure Monitor, Prometheus, and Grafana with AI-driven analytics powered by Ollama.
+A comprehensive monitoring and alerting system built with Node.js that integrates Google Cloud Monitoring, Prometheus, and Grafana with AI-driven analytics powered by Ollama.
 
 ![System Architecture](/public/images/system_architecture.svg)
 
@@ -10,7 +10,7 @@ This system provides real-time monitoring, alerting, and AI-powered analytics fo
 
 ### Key Features
 
-- **Multi-source Monitoring**: Collect metrics from Azure resources, Prometheus endpoints, and custom sources
+- **Multi-source Monitoring**: Collect metrics from Google Cloud resources, Prometheus endpoints, and custom sources
 - **Intelligent Alerting**: Rule-based and AI-driven alerting with customizable notification channels
 - **AI Analytics**: Anomaly detection, trend analysis, and resource optimization using Ollama AI models
 - **Real-time Visualization**: Custom dashboards and Grafana integration for comprehensive data visualization
@@ -20,7 +20,7 @@ This system provides real-time monitoring, alerting, and AI-powered analytics fo
 ## Technology Stack
 
 - **Backend**: Node.js with Express
-- **Monitoring**: Azure Monitor, Prometheus
+- **Monitoring**: Google Cloud Monitoring, Prometheus
 - **Visualization**: Grafana, Custom UI
 - **AI Integration**: Ollama with Llama2 models
 - **Containerization**: Docker and Docker Compose
@@ -30,7 +30,7 @@ This system provides real-time monitoring, alerting, and AI-powered analytics fo
 
 - Node.js 18 or later
 - Docker and Docker Compose (for containerized deployment)
-- Azure subscription (for Azure Monitor integration)
+- Google Cloud Platform account (for Google Cloud Monitoring integration)
 - Ollama (automatically managed with Docker or installed separately for local development)
 
 ## Quick Start
@@ -102,12 +102,11 @@ This system provides real-time monitoring, alerting, and AI-powered analytics fo
 Key environment variables (defined in `.env`):
 
 ```
-# Azure Configuration
-AZURE_TENANT_ID=your_tenant_id
-AZURE_CLIENT_ID=your_client_id
-AZURE_CLIENT_SECRET=your_client_secret
-AZURE_SUBSCRIPTION_ID=your_subscription_id
-AZURE_LOG_ANALYTICS_WORKSPACE_ID=your_workspace_id
+# Google Cloud Configuration
+GCP_PROJECT_ID=your_project_id
+GCP_CLIENT_EMAIL=your_service_account_email
+GCP_PRIVATE_KEY=your_service_account_private_key
+GCP_MONITORING_SCOPES=https://www.googleapis.com/auth/monitoring.read
 
 # Prometheus Configuration
 PROMETHEUS_URL=http://prometheus:9090
@@ -149,9 +148,9 @@ Alert rules are configured in `config/alert-rules.json`. Example:
 }
 ```
 
-### Azure Monitor
+### Google Cloud Monitoring
 
-Azure Monitor configuration is in `config/azure/azure-monitor-config.json` and specifies:
+Google Cloud Monitoring configuration is in `config/gcp/gcp-monitoring-config.json` and specifies:
 - Resources to monitor
 - Metrics and logs to collect
 - Query schedules
@@ -160,7 +159,7 @@ Azure Monitor configuration is in `config/azure/azure-monitor-config.json` and s
 
 Preconfigured dashboards are available in `config/grafana/dashboards/`:
 - System overview
-- Azure resources
+- Google Cloud resources
 - Application metrics
 - AI insights
 
@@ -207,7 +206,7 @@ The system is composed of the following layers:
 
 ### Data Collection Layer
 
-- **Azure Monitor Collector**: Collects metrics and logs from Azure resources
+- **Google Cloud Monitoring Collector**: Collects metrics and logs from Google Cloud resources
 - **Prometheus Collector**: Collects metrics from Prometheus endpoints
 - **Custom Collectors**: Extensible framework for custom data collection
 
@@ -240,8 +239,8 @@ The system is composed of the following layers:
 
 ```
 ├── config/                 # Configuration files
-│   ├── azure/              # Azure Monitor configuration
-│   │   └── azure-monitor-config.json # Azure Monitor configuration
+│   ├── gcp/                # Google Cloud configuration
+│   │   └── gcp-monitoring-config.json # Google Cloud Monitoring configuration
 │   ├── grafana/            # Grafana dashboards and provisioning
 │   │   └── dashboards/       # Grafana dashboards
 │   ├── ollama/             # Ollama AI model configuration
@@ -261,7 +260,7 @@ The system is composed of the following layers:
 │   ├── alerting/           # Alert management
 │   │   └── alert-manager.js # Alert manager implementation
 │   ├── data-collectors/    # Data collection modules
-│   │   ├── azure-monitor.js # Azure Monitor collector
+│   │   ├── gcp-monitoring.js # Google Cloud Monitoring collector
 │   │   └── prometheus-collector.js # Prometheus collector
 │   ├── data-processors/    # Data processing logic
 │   │   └── trend-analyzer.js # Trend analysis implementation
@@ -327,7 +326,7 @@ npm run format
 
 - **Anshuman**
   - **Frontend**: Grafana dashboard customizations, chart components, and user interactions
-  - **Backend**: Data collectors, AI integration, and system architecture
+  - **Backend**: Data collectors, Google Cloud integration, and system architecture
 
 ## AI Analytics
 

@@ -33,81 +33,85 @@ async function generateDiagram() {
 
     const diagramText = diagramMatch[1].trim();
 
-    // Create a temporary mermaid file
-    console.log('Creating temporary mermaid file...');
-    const mermaidContent = `
+    // Define the system architecture diagram using Mermaid syntax
+    const diagram = `
 graph TD
-    %% Data Collection Layer
-    DCL[Data Collection Layer]
-    PC[Prometheus Collector]
-    AM[Azure Monitor]
-    DCL --> PC
-    DCL --> AM
-
-    %% Azure Resources
-    AR[Azure Resources]
-    AS[App Services]
-    VMs[VMs]
-    AR --> AS
-    AR --> VMs
-    PC -.REST API.- AR
-    AM -.REST API.- AR
-
-    %% Data Processing Layer
-    DPL[Data Processing Layer]
-    SP[Stream Processing]
-    BP[Batch Processing]
-    AI[AI/ML Processing]
-    DPL --> SP
-    DPL --> BP
-    DPL --> AI
-    PC --> DPL
-    AM --> DPL
-
-    %% Ollama AI
-    OAI[Ollama AI Models]
-    AD[Anomaly Detection]
-    TA[Trend Analysis]
-    RE[Recommendation]
-    OAI --> AD
-    OAI --> TA
-    OAI --> RE
-    AI --> OAI
-
-    %% Alerting Layer
-    AL[Alerting Layer]
-    RBA[Rule-based Alerts]
-    ADA[AI-driven Anomalies]
-    ALM[Alert Management]
-    AL --> RBA
-    AL --> ADA
-    AL --> ALM
-    DPL --> AL
-
-    %% Visualization Layer
-    VL[Visualization Layer]
-    GD[Grafana Dashboards]
-    CUI[Custom UI]
-    HA[Historical Analysis]
-    VL --> GD
-    VL --> CUI
-    VL --> HA
-    AL --> VL
-
-    %% Styling
-    classDef layer fill:#f9f9f9,stroke:#333,stroke-width:2px
-    classDef component fill:#e1f5fe,stroke:#0288d1,stroke-width:1px
-    classDef azure fill:#e3f2fd,stroke:#1976d2,stroke-width:1px
-    classDef ai fill:#f3e5f5,stroke:#9c27b0,stroke-width:1px
-
-    class DCL,DPL,AL,VL layer
-    class PC,AM,SP,BP,RBA,ADA,ALM,GD,CUI,HA component
-    class AR,AS,VMs azure
-    class AI,OAI,AD,TA,RE ai
+    %% Main Components
+    UI[User Interface]
+    API[API Server]
+    AM[Google Cloud Monitoring]
+    PR[Prometheus]
+    GR[Grafana]
+    AI[Ollama AI]
+    DR[Data Repository]
+    AM[Google Cloud Monitoring]
+    
+    %% Google Cloud Resources
+    GC[Google Cloud]
+    VM[GCE Instances]
+    APP[App Engine]
+    SQL[Cloud SQL]
+    
+    %% Process Components
+    DP[Data Processors]
+    AP[Alerting Pipeline]
+    AE[Alert Evaluator]
+    AR[Alert Router]
+    NM[Notification Manager]
+    MP[Metric Processors]
+    
+    %% Data Flow
+    UI --> API
+    API --> DR
+    API --> DP
+    
+    %% Google Cloud Integration
+    GC --> AM
+    VM --> GC
+    APP --> GC
+    SQL --> GC
+    AM --> DP
+    
+    %% Prometheus Integration
+    PR --> DP
+    
+    %% Data Processing
+    DP --> MP
+    DP --> AP
+    MP --> DR
+    AP --> AE
+    AE --> AR
+    AR --> NM
+    AR --> DR
+    
+    %% AI Integration
+    DP --> AI
+    AI --> MP
+    AI --> AP
+    
+    %% Visualization
+    DR --> GR
+    GR --> UI
+    
+    %% Classes for styling
+    classDef gcp fill:#e7f5fd,stroke:#4285F4,stroke-width:1px
+    classDef ui fill:#f9f9f9,stroke:#999999,stroke-width:1px
+    classDef processor fill:#f1f8e9,stroke:#8bc34a,stroke-width:1px
+    classDef storage fill:#fffde7,stroke:#ffc107,stroke-width:1px
+    classDef alert fill:#fbe9e7,stroke:#ff5722,stroke-width:1px
+    
+    %% Apply classes
+    class UI,GR ui
+    class DP,MP,AP processor
+    class DR storage
+    class AE,AR,NM alert
+    class GC,VM,APP,SQL,AM gcp
 `;
 
+    // Create a temporary mermaid file
+    console.log('Creating temporary mermaid file...');
     const mermaidFilePath = path.join(process.cwd(), 'temp-diagram.mmd');
-    await fs.writeFile(mermaidFilePath, mermaidContent);
+    await fs.writeFile(mermaidFilePath, diagram);
 
     // Create the output directory if it doesn't exist
     const outputDir = path.join(process.cwd(), 'public', 'images');

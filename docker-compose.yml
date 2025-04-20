@@ -8,38 +8,41 @@ services:
       dockerfile: Dockerfile
     container_name: monitoring-app
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
     environment:
       - NODE_ENV=production
-      - PORT=3000
-      - LOG_LEVEL=info
-      - PROMETHEUS_URL=http://prometheus:9090
-      - GRAFANA_URL=http://grafana:3000
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - AZURE_LOG_ANALYTICS_WORKSPACE_ID=${AZURE_LOG_ANALYTICS_WORKSPACE_ID}
-      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
-      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
-      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
-    volumes:
-      - ./logs:/app/logs
-      - ./config:/app/config
+      - PORT=${PORT:-3000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://prometheus:9090}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_CLIENT_EMAIL=${GCP_CLIENT_EMAIL}
+      - GCP_PRIVATE_KEY=${GCP_PRIVATE_KEY}
+      - GCP_MONITORING_SCOPES=${GCP_MONITORING_SCOPES}
+      - GCP_INSTANCE_ID=${GCP_INSTANCE_ID}
+      - GCP_APP_ENGINE_SERVICE=${GCP_APP_ENGINE_SERVICE}
+      - GCP_SQL_INSTANCE_ID=${GCP_SQL_INSTANCE_ID}
     depends_on:
       - prometheus
-      - grafana
       - ollama
+      - grafana
     restart: unless-stopped
     networks:
       - monitoring-network
 
   # Prometheus service
   prometheus:
-    image: prom/prometheus:v2.44.0
+    image: prom/prometheus:latest
     container_name: prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
+      - ./config/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -52,19 +55,19 @@ services:
 
   # Grafana service
   grafana:
-    image: grafana/grafana:10.1.0
+    image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_INSTALL_PLUGINS=grafana-azure-monitor-datasource
+      - "${GRAFANA_PORT:-3001}:3000"
     volumes:
-      - ./config/grafana/dashboards:/var/lib/grafana/dashboards
       - ./config/grafana/provisioning:/etc/grafana/provisioning
-      - grafana-data:/var/lib/grafana
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-googlecloud-datasource
     restart: unless-stopped
     networks:
       - monitoring-network
@@ -76,7 +79,7 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ollama-data:/root/.ollama
+      - ollama_data:/root/.ollama
     restart: unless-stopped
     networks:
       - monitoring-network
@@ -91,6 +94,6 @@ networks:
     driver: bridge
 
 volumes:
-  prometheus-data:
-  grafana-data:
-  ollama-data: 
+  prometheus_data:
+  grafana_data:
+  ollama_data: 
